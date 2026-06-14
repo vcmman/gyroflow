@@ -14,3 +14,11 @@ gyroflow.log
 resources/camera_presets
 *.exe
 .qmlls.ini
+
+# Local analysis artifacts
+data/
+*.dmp
+*.py[cod]
+__pycache__/
+.pytest_cache/
+sample_track*_*.bin

@@ -47,9 +47,10 @@ def resolve_gyroflow_binary(explicit: str | None = None) -> str:
 
 def export_camera_data_csv(mp4_path: Path, gyroflow_bin: str | None = None, keep_csv: Path | None = None) -> Path:
     gyroflow = resolve_gyroflow_binary(gyroflow_bin)
-    out_csv = keep_csv or Path(tempfile.gettempdir()) / f"{mp4_path.stem}_gyroflow_camera_data.csv"
+    out_csv = (keep_csv or Path(tempfile.gettempdir()) / f"{mp4_path.stem}_gyroflow_camera_data.csv").resolve()
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     fields = {
+        "export_all_samples": True,
         "original": {
             "gyroscope": False,
             "accelerometer": False,
@@ -72,7 +73,9 @@ def export_camera_data_csv(mp4_path: Path, gyroflow_bin: str | None = None, keep
         "--export-metadata",
         f"3:{out_csv}",
         "--export-metadata-fields",
-        json.dumps(fields),
+        # Match Gyroflow's documented single-quoted field syntax. The CLI
+        # converts single quotes back to JSON double quotes internally.
+        json.dumps(fields).replace('"', "'"),
     ]
     subprocess.run(cmd, check=True)
     return out_csv

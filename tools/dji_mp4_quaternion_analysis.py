@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
+
 from gyro_analysis.gyroflow_export import load_dji_quaternions_from_mp4
 from gyro_analysis.math_utils import (
     angular_velocity_from_quats,
@@ -83,8 +85,18 @@ def main() -> None:
             smoothed_omega_rad_s,
         )
 
-    print(f"samples: {len(series.timestamps_s)}")
-    print(f"duration: {series.timestamps_s[-1] - series.timestamps_s[0]:.3f} s")
+    quaternion_count = len(series.timestamps_s)
+    duration_s = series.timestamps_s[-1] - series.timestamps_s[0]
+    intervals_s = np.diff(series.timestamps_s)
+    quaternion_rate_hz = (quaternion_count - 1) / duration_s if duration_s > 0 and quaternion_count > 1 else 0.0
+
+    print(f"quaternion samples: {quaternion_count}")
+    print(f"quaternion duration: {duration_s:.3f} s")
+    print(f"quaternion frequency: {quaternion_rate_hz:.3f} Hz")
+    if len(intervals_s):
+        median_interval_s = float(np.median(intervals_s))
+        median_rate_hz = 1.0 / median_interval_s if median_interval_s > 0 else 0.0
+        print(f"quaternion median interval: {median_interval_s * 1000.0:.3f} ms ({median_rate_hz:.3f} Hz)")
     print(f"camera-data csv: {series.source_csv}")
     if args.output:
         print(f"plot: {args.output}")
