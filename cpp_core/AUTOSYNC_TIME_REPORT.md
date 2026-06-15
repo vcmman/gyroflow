@@ -101,3 +101,42 @@ accuracy above. This mirrors real autosync, which relies on rich scene/handheld 
   evaluator use-case (kept off by default for Rust parity).
 - Port `find_offset::visual_features` (method 1) and `rs_sync` (method 2) for completeness.
 - Wire real optical-flow `estimated_gyro` in, to drive the same `findOffset` from decoded video.
+
+## 7. Development log (brief)
+
+Chronological record of how this was built and the decisions/findings along the way.
+
+1. **Survey the Rust source.** Read `synchronization/{mod,autosync}.rs`,
+   `find_offset/essential_matrix.rs`, and `filtering.rs` to pin down the exact algorithm:
+   per-range 20 Hz forward-backward low-pass, 1 ms coarse sweep → 0.01 ms refine, weighted
+   least-squares cost with a nearest-upper IMU lookup. Chose `offset_method = 0` (default,
+   most testable) as the port target.
+2. **Inspect the data.** `data/` holds ~32 k DJI fused-quaternion samples (~989 Hz) + 973
+   video frames (~30 fps); `dji_quat_analysis.csv` already carries quaternion-derived
+   `quat_omega_*`, confirming the "generate gyro from quaternions" approach.
+3. **Plan doc** (`AUTOSYNC_TIME_PLAN.md`) written before coding: scope, components, evaluation
+   method (inject a known offset, measure recovery).
+4. **Core implementation** (`timesync.{hpp,cpp}`): ported the RBJ Butterworth biquad
+   (Direct-Form-II-Transposed) incl. the `2·f0 > fs` Nyquist skip; `quaternionsToAngularVelocity`;
+   `findOffset`. Used signed-microsecond keys for the IMU lookup instead of Rust's
+   `as usize` (which would clamp the DJI clip's small negative start timestamps to 0).
+5. **CLI + tests + CMake**, then first build/run. Two issues surfaced and were fixed:
+   - Release defines `NDEBUG`, so `assert()`-based tests were silently no-ops → replaced with a
+     `CHECK` macro that always runs.
+   - The ω cross-check matched the Python tools exactly (14.1351 deg/s = 0.246703 rad/s, …).
+6. **Debugged a recovery bias.** On a smooth multi-tone sinusoid the recovered offset was ~1–2 ms
+   off. Dumped the cost curve and bisected the cause with variants: `nolpf+upper` → +0.33 ms,
+   `lpf+upper` → −1.0 ms. Conclusion: at low video fps the 20 Hz low-pass interacts with the
+   quasi-periodic signal's autocorrelation sidelobes (multi-modal cost) — an inherent property
+   of the method, not a port bug.
+7. **Validated on real data:** 30 fps recovery = **0.4 ms RMS**, and the bias is the expected
+   ~0.3 ms nearest-upper-lookup floor. Switched the unit-test fixture from sinusoids to a
+   band-limited random walk (AR(1) body rates), which mimics real motion and gives a sharp,
+   reliable minimum (max err 0.34 ms).
+8. **Evaluation + docs:** added `tools/run_autosync_eval.sh` (build → ctest → ω check → baseline
+   → fps×noise table), `AUTOSYNC_TIME_TESTING.md`, and this report; added a noise-robustness
+   unit test (drift 0.000 ms up to 5 deg/s). `ctest` 2/2 green.
+
+Faithfulness note: where Rust behaviour and "more correct" behaviour diverged (nearest-upper
+lookup bias, low-fps low-pass interaction), parity was kept and the effect documented rather than
+silently "fixed", so results stay comparable to the Rust engine.
