@@ -11,6 +11,7 @@ add_library(gyroflow_cpp_core
     src/quaternion.cpp
     src/smoothing.cpp
     src/stabilization.cpp
+    src/timesync.cpp
 )
 
 target_include_directories(gyroflow_cpp_core
@@ -23,8 +24,15 @@ target_compile_features(gyroflow_cpp_core PUBLIC cxx_std_17)
 add_executable(gyroflow_cpp_probe tools/gyroflow_cpp_probe.cpp)
 target_link_libraries(gyroflow_cpp_probe PRIVATE gyroflow_cpp_core)
 
+add_executable(gyroflow_autosync tools/gyroflow_autosync.cpp)
+target_link_libraries(gyroflow_autosync PRIVATE gyroflow_cpp_core)
+
 enable_testing()
 
 add_executable(gyroflow_cpp_core_tests tests/test_core.cpp)
 target_link_libraries(gyroflow_cpp_core_tests PRIVATE gyroflow_cpp_core)
 add_test(NAME gyroflow_cpp_core_tests COMMAND gyroflow_cpp_core_tests)
+
+add_executable(gyroflow_cpp_timesync_tests tests/test_timesync.cpp)
+target_link_libraries(gyroflow_cpp_timesync_tests PRIVATE gyroflow_cpp_core)
+add_test(NAME gyroflow_cpp_timesync_tests COMMAND gyroflow_cpp_timesync_tests)
