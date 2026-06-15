@@ -203,8 +203,14 @@ sync, raw-IMU integration, non-DJI cameras, 10-bit/HDR, keyframes.
 - **Phase 3 — Native telemetry parser:** port DJI `djmd`/DVTM protobuf parsing (replaces
   the JSON bridge), readout-time extraction, lens-profile DB (CBOR+gzip) loading and
   matching. Removes the Rust/Python dependency.
-- **Phase 4 — Native FFmpeg I/O:** libav decode/encode, audio passthrough, bit-depth and
-  codec/bitrate control, the PreConversion/PostConversion ordering from `rendering/`.
+- **Phase 4 — Native FFmpeg I/O:** ⚙️ **partially done** — the CLI now pipes raw frames to
+  an `ffmpeg` subprocess for H.264/H.265 encoding with **audio passthrough** (copies the
+  source track), falling back to OpenCV `mp4v` when ffmpeg is absent (`--codec`, `--crf`,
+  `--no-audio`, `--no-ffmpeg`, `--ffmpeg-bin`; see README "Encoding"). On the sample clip
+  this cut the full output from 1.3 GB (mp4v) to ~0.7 GB (H.264 CRF 20) and added audio.
+  Still pending: native **libav decode** (input is still via OpenCV `VideoCapture`, 8-bit
+  BGR only — no 10-bit/HDR), bit-depth control, and the PreConversion/PostConversion
+  ordering from `rendering/`.
 - **Phase 5 — More sources & GPU:** additional distortion models, raw-IMU integration
   (complementary/VQF), other cameras, optional GPU (OpenCL/wgpu) backend.
 

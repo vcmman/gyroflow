@@ -81,16 +81,28 @@ The processing pipeline, roughly in order:
 
 Self-contained CMake project (C++17), independent of the Rust build:
 ```sh
-cmake -S cpp_core -B cpp_core/build
-cmake --build cpp_core/build
-ctest --test-dir cpp_core/build        # runs gyroflow_cpp_core_tests
-./cpp_core/build/gyroflow_cpp_probe    # debug/inspection CLI
+cmake -S cpp_core -B cpp_core/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp_core/build -j
+(cd cpp_core/build && ctest --output-on-failure)   # ctest 3.16 has no --test-dir; run from build/
 ```
-Layout: `include/gyroflow/*.hpp`, `src/*.cpp` (quaternion, smoothing, stabilization,
-lens_profile), `tests/test_core.cpp`, `tools/gyroflow_cpp_probe.cpp`. The port's scope and
-migration order are tracked in `cpp_core/README.md` — it follows the DJI-fused-quaternion
-path first, with OpenCV-fisheye as the default lens model. The goal is parity with Rust
-Gyroflow output, so changes here should be checked against golden data.
+The core library and unit tests have no external deps (JSON vendored in `third_party/`); the
+`gyroflow_cpp_stabilize` CLI is built only when OpenCV is found.
+
+Implemented (Phase 1 headless DJI stabilizer + Phase 2 adaptive zoom): `distortion/` (OpenCV
+fisheye), `smoothing/default_algo`, `stabilization/{frame_transform,undistort}`, `mat3.hpp`,
+`zooming/adaptive_zoom`, `telemetry_io` (JSON bridge), and `tools/gyroflow_cpp_stabilize.cpp`.
+Each `*.cpp` is a faithful port of the matching `src/core/` Rust file — check changes against
+Gyroflow golden output. Scope/migration order and validation numbers live in
+`cpp_core/README.md` and `cpp_core/DEVELOPMENT_PLAN.md`.
+
+Run the stabilizer (DJI fused-quaternion path, OpenCV-fisheye lens, adaptive zoom on):
+```sh
+python3 tools/export_bridge_json.py INPUT.MP4 -o bridge.json   # needs a Gyroflow binary
+./cpp_core/build/gyroflow_cpp_stabilize INPUT.MP4 --telemetry bridge.json -o out.mp4
+```
+Output is encoded via `ffmpeg` (H.264/H.265 + audio copy) when on PATH, else OpenCV `mp4v`.
+The telemetry parser and video *decode* are still bridged (JSON sidecar + OpenCV decode);
+native DJI protobuf + libav decode are later phases.
 
 ## DJI telemetry tools (`tools/`)
 
