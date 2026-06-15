@@ -15,6 +15,13 @@ resources/camera_presets
 *.exe
 .qmlls.ini
 
+# C++ core build artifacts
+cpp_core/build/
+cpp_core/Testing/
+
+# Claude Code local session files
+.claude/
+
 # Local analysis artifacts
 data/
 *.dmp

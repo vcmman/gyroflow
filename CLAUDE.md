@@ -1,0 +1,109 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Gyroflow is a cross-platform video stabilization app that uses gyroscope/accelerometer
+telemetry embedded in video files (GoPro, Sony, DJI, Insta360, etc.) to stabilize footage.
+The app is **Rust + QML**; the stabilization engine is a dependency-free Rust library.
+
+This checkout (`claude/new-cpp-impl` branch) additionally contains in-progress work that is
+**not** part of upstream Gyroflow:
+- `cpp_core/` — a UI-free **C++ port** of the core algorithms (separate CMake project), built
+  and validated against the Rust engine's golden output.
+- `tools/` + `data/` — Python tools for analyzing **DJI MP4 quaternion/telemetry** streams,
+  used to drive and verify the C++ port.
+
+When asked to work on "the core port", "DJI quaternions", or "the C++ stuff", that means
+`cpp_core/` and `tools/` — not the main Rust app.
+
+## Build & run
+
+Builds go through `just` (a `Justfile` wrapper that dispatches to per-OS scripts in
+`_scripts/<os>.just`). Run all commands from the repo root. On Linux the relevant recipes are:
+
+```sh
+just install-deps   # one-time: fetches Qt, ffmpeg, OpenCV (vcpkg) into ext/, installs apt deps
+just run [args]     # cargo run --release -- <args>
+just debug [args]   # cargo run -- <args>   (debug build)
+just test [args]    # cargo test -- <args>
+just clippy         # lint
+just deploy         # release build + bundle Qt/ffmpeg/mdk libs into a distributable
+```
+
+`just <cmd>` always forwards to `_scripts/{linux,macos,windows,android,ios}.just`. The
+heavy native deps (Qt, ffmpeg, OpenCV, mdk-sdk) are external and pulled by `install-deps`;
+a bare `cargo build` will not work without them.
+
+Direct cargo also works once deps exist:
+```sh
+cargo build --release                 # build the gyroflow binary
+cargo test -p gyroflow-core           # test only the core engine
+cargo test --test <name> -- <filter>  # run a single test / filter by name
+```
+
+The default feature set enables `opencv` (used only for lens calibration and optical-flow
+sync). `opencl` is an extra feature. Mobile targets build core with `opencv` only.
+
+## Workspace layout
+
+Two crates:
+- **`gyroflow`** (root `Cargo.toml`, entry `src/gyroflow.rs`) — the desktop/mobile app:
+  QML UI, ffmpeg rendering, GPU preview, CLI. Edition 2024.
+- **`gyroflow-core`** (`src/core/`, crate name `gyroflow-core`) — the stabilization engine.
+  No Qt, no ffmpeg; OpenCV optional. This is the part being ported to C++.
+
+### App (`src/`)
+- `src/gyroflow.rs` — main entry point; `src/cli.rs` — headless CLI path.
+- `src/controller.rs` — the bridge between QML and core; QML calls land here and dispatch
+  into `gyroflow-core`. This is the main place to look when wiring UI ↔ engine.
+- `src/ui/` — all QML (entry `App.qml` / `main_window.qml`). `src/ui/*.rs` expose Rust to QML.
+- `src/rendering/` — all ffmpeg code (final render + processing for sync).
+- `src/qt_gpu/` — zero-copy GPU undistortion via Qt RHI + GLSL compute shaders.
+
+### Engine (`src/core/`, see `lib.rs` for the module list)
+The processing pipeline, roughly in order:
+1. `gyro_source/` — parse telemetry (via the `telemetry-parser` crate) into a quaternion
+   time series; per-vendor quirks in `sony.rs`, `canon.rs`, `imu_transforms.rs`.
+2. `imu_integration/` — integrate raw IMU into orientation when no fused attitude exists
+   (`complementary`, `complementary_v2`, `vqf`).
+3. `smoothing/` — orientation smoothing algorithms (`default_algo`, `plain`, `fixed`,
+   `horizon`, …) selected at runtime.
+4. `stabilization/` — undistortion + per-row rolling-shutter compensation; has CPU and
+   `gpu/` (OpenCL / wgpu) backends.
+5. `zooming/` — adaptive zoom / dynamic cropping. `lens_profile*` — lens distortion models.
+   `synchronization/` — gyro-to-video auto-sync (uses OpenCV optical flow when available).
+
+`mod.rs`/`lib.rs` in each directory is that module's entry point.
+
+## C++ core port (`cpp_core/`)
+
+Self-contained CMake project (C++17), independent of the Rust build:
+```sh
+cmake -S cpp_core -B cpp_core/build
+cmake --build cpp_core/build
+ctest --test-dir cpp_core/build        # runs gyroflow_cpp_core_tests
+./cpp_core/build/gyroflow_cpp_probe    # debug/inspection CLI
+```
+Layout: `include/gyroflow/*.hpp`, `src/*.cpp` (quaternion, smoothing, stabilization,
+lens_profile), `tests/test_core.cpp`, `tools/gyroflow_cpp_probe.cpp`. The port's scope and
+migration order are tracked in `cpp_core/README.md` — it follows the DJI-fused-quaternion
+path first, with OpenCV-fisheye as the default lens model. The goal is parity with Rust
+Gyroflow output, so changes here should be checked against golden data.
+
+## DJI telemetry tools (`tools/`)
+
+Python 3.10+ scripts (need `numpy`, `matplotlib`) that extract and plot DJI MP4 quaternion
+streams. Several scripts shell out to a built Gyroflow binary to export the same camera-data
+CSV Gyroflow uses internally; they locate it via `--gyroflow-bin`, `$GYROFLOW_BIN`, or
+`gyroflow`/`Gyroflow` on `PATH`. On headless machines set `MPLBACKEND=Agg`. See
+`tools/README_DJI_quaternion.md` for the full command reference; shared helpers live in
+`tools/gyro_analysis/`.
+
+## Conventions
+
+- The core library must stay free of Qt/ffmpeg; keep OpenCV usage behind the `opencv`
+  feature and confined to calibration + optical-flow sync.
+- All timing is timestamp-based (variable/high frame rate support), not frame-index based.
+- UI live reload: set `live_reload = true` in `gyroflow.rs` to hot-reload QML on save.
