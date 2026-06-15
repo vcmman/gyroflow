@@ -12,8 +12,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -30,12 +32,40 @@ using namespace gyroflow;
 
 namespace {
 
+bool ffmpegAvailable(const std::string& bin) {
+    return std::system((bin + " -version >/dev/null 2>&1").c_str()) == 0;
+}
+
+// Spawns ffmpeg reading raw BGR24 frames from a pipe and encoding to `output`. When
+// `input` is given and `audio` is set, ffmpeg muxes the original's audio track.
+FILE* openFfmpegPipe(const std::string& bin, const std::string& output,
+                     const std::string& input, int w, int h, double fps,
+                     const std::string& codec, int crf, bool audio) {
+    const std::string venc = (codec == "h265" || codec == "hevc") ? "libx265" : "libx264";
+    std::ostringstream cmd;
+    cmd << "'" << bin << "' -y -hide_banner -loglevel error"
+        << " -f rawvideo -pixel_format bgr24"
+        << " -video_size " << w << "x" << h
+        << " -framerate " << fps << " -i -";
+    const bool with_audio = audio && !input.empty();
+    if (with_audio) cmd << " -i '" << input << "'";
+    cmd << " -map 0:v:0";
+    if (with_audio) cmd << " -map 1:a:0? -c:a copy -shortest";
+    cmd << " -c:v " << venc << " -preset medium -crf " << crf
+        << " -pix_fmt yuv420p -movflags +faststart"
+        << " '" << output << "'";
+    return popen(cmd.str().c_str(), "w");
+}
+
 void usage(const char* prog) {
     std::cerr << "Usage: " << prog
               << " <input.mp4> --telemetry <file.json> -o <output.mp4>\n"
-              << "  [--max-zoom 130] [--no-adaptive-zoom] [--fov 1.0]"
-              << " [--max-frames N] [--threads N]\n"
-              << "  Adaptive zoom is on by default; --fov sets a static zoom and disables it.\n";
+              << "  Stabilization: [--max-zoom 130] [--no-adaptive-zoom] [--fov 1.0]\n"
+              << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
+              << " [--no-ffmpeg] [--ffmpeg-bin PATH]\n"
+              << "  Misc:          [--max-frames N] [--threads N]\n"
+              << "  Adaptive zoom is on by default; --fov sets a static zoom and disables it.\n"
+              << "  ffmpeg (H.264/H.265 + audio copy) is used when available; --no-ffmpeg uses OpenCV mp4v.\n";
 }
 
 } // namespace
@@ -47,6 +77,14 @@ int main(int argc, char** argv) {
     double max_zoom = 130.0;
     long max_frames = 0;
     int threads = 0;
+
+    // Encoder options. ffmpeg is used when available (proper H.264/H.265 compression and
+    // audio passthrough); --no-ffmpeg falls back to OpenCV's mp4v writer.
+    bool use_ffmpeg = true;
+    std::string ffmpeg_bin = "ffmpeg";
+    std::string codec = "h264";  // h264 (libx264) or h265 (libx265)
+    int crf = 18;
+    bool audio = true;  // copy audio track from the input
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -64,6 +102,11 @@ int main(int argc, char** argv) {
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
+        else if (a == "--no-ffmpeg") use_ffmpeg = false;
+        else if (a == "--ffmpeg-bin") ffmpeg_bin = next("--ffmpeg-bin");
+        else if (a == "--codec") codec = next("--codec");
+        else if (a == "--crf") crf = std::stoi(next("--crf"));
+        else if (a == "--no-audio") audio = false;
         else if (a == "-h" || a == "--help") { usage(argv[0]); return 0; }
         else if (!a.empty() && a[0] == '-') { std::cerr << "Unknown option: " << a << "\n"; return 2; }
         else input = a;
@@ -125,11 +168,25 @@ int main(int argc, char** argv) {
               << sp.camera_diagonal_fov << " deg)...\n";
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
-    cv::VideoWriter writer(output, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps,
-                           cv::Size(width, height));
-    if (!writer.isOpened()) {
-        std::cerr << "Failed to open output writer: " << output << "\n";
-        return 1;
+    // Choose the encoder: ffmpeg pipe (H.264/H.265 + audio) when available, else OpenCV.
+    const bool ffmpeg_ok = use_ffmpeg && ffmpegAvailable(ffmpeg_bin);
+    FILE* ff_pipe = nullptr;
+    cv::VideoWriter writer;
+    if (ffmpeg_ok) {
+        ff_pipe = openFfmpegPipe(ffmpeg_bin, output, input, width, height, fps, codec, crf, audio);
+        if (!ff_pipe) {
+            std::cerr << "Failed to start ffmpeg pipe\n";
+            return 1;
+        }
+        std::cout << "Encoder: ffmpeg " << ((codec == "h265" || codec == "hevc") ? "libx265" : "libx264")
+                  << " crf " << crf << (audio ? " + audio copy" : "") << "\n";
+    } else {
+        if (use_ffmpeg) std::cout << "ffmpeg not found, falling back to OpenCV mp4v writer\n";
+        writer.open(output, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(width, height));
+        if (!writer.isOpened()) {
+            std::cerr << "Failed to open output writer: " << output << "\n";
+            return 1;
+        }
     }
 
     TransformParams tp;
@@ -179,7 +236,19 @@ int main(int argc, char** argv) {
         ImageBuffer dst{out.data, width, height, static_cast<int>(out.step), 3};
         undistortFrame(t, src, dst, background, threads);
 
-        writer.write(out);
+        if (ff_pipe) {
+            // Write tightly-packed BGR24 rows (skip any cv::Mat row padding).
+            for (int y = 0; y < height; ++y) {
+                if (std::fwrite(out.ptr(y), 1, static_cast<std::size_t>(width) * 3, ff_pipe) !=
+                    static_cast<std::size_t>(width) * 3) {
+                    std::cerr << "\nffmpeg pipe write failed (frame " << i << ")\n";
+                    pclose(ff_pipe);
+                    return 1;
+                }
+            }
+        } else {
+            writer.write(out);
+        }
 
         if ((i % 30) == 0) {
             std::printf("\rframe %ld%s ", i, total > 0 ? ("/" + std::to_string(total)).c_str() : "");
@@ -190,7 +259,12 @@ int main(int argc, char** argv) {
     }
     std::printf("\rProcessed %ld frames -> %s\n", i, output.c_str());
 
-    writer.release();
+    if (ff_pipe) {
+        const int rc = pclose(ff_pipe);
+        if (rc != 0) { std::cerr << "ffmpeg exited with code " << rc << "\n"; return 1; }
+    } else {
+        writer.release();
+    }
     cap.release();
     return 0;
 }

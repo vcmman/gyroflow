@@ -49,12 +49,63 @@ tests have no external dependencies (JSON is vendored under `third_party/`).
 #    pre-exported .gyroflow project + camera-data CSV):
 python3 ../tools/export_bridge_json.py INPUT.MP4 -o bridge.json
 
-# 2. Stabilize (adaptive zoom on by default):
+# 2. Stabilize (adaptive zoom + ffmpeg H.264 + audio, all on by default):
 ./build/gyroflow_cpp_stabilize INPUT.MP4 --telemetry bridge.json -o out.mp4
-#   --max-zoom 130        zoom ceiling (percent)
-#   --no-adaptive-zoom    disable dynamic crop
-#   --fov 0.8             static zoom instead of adaptive
-#   --max-frames N        process only the first N frames
+```
+
+Stabilization options:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--max-zoom <pct>` | 130 | Dynamic-zoom ceiling (percent). |
+| `--no-adaptive-zoom` | off | Disable dynamic crop (renders with `--fov`). |
+| `--fov <f>` | 1.0 | Static zoom (`<1` zooms in); disables adaptive zoom. |
+| `--max-frames <n>` | all | Process only the first N frames (quick preview). |
+| `--threads <n>` | auto | CPU threads for the undistort kernel. |
+
+## Encoding (ffmpeg)
+
+Output is encoded by piping raw BGR frames to **ffmpeg** when an ffmpeg binary is found
+(proper H.264/H.265 compression + audio passthrough). Without ffmpeg it falls back to
+OpenCV's `mp4v` writer (much larger, no audio).
+
+```sh
+ffmpeg -version            # needed on PATH; install below if missing
+```
+
+Install ffmpeg (no sudo required — static build into a PATH dir):
+
+```sh
+curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+  | tar xJ -C /tmp
+cp /tmp/ffmpeg-*-static/ffmpeg /tmp/ffmpeg-*-static/ffprobe ~/.local/bin/   # ensure ~/.local/bin is on PATH
+# or, with a package manager: sudo apt-get install -y ffmpeg   /   conda install -c conda-forge ffmpeg
+```
+
+Encoding options:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--codec h264\|h265` | h264 | `libx264` or `libx265` (smaller, slower). |
+| `--crf <n>` | 18 | Quality/size knob. Lower = bigger/better; 18 ≈ visually lossless. |
+| `--no-audio` | off | Don't copy the source audio track. |
+| `--no-ffmpeg` | off | Force the OpenCV `mp4v` writer instead of ffmpeg. |
+| `--ffmpeg-bin <path>` | `ffmpeg` | Path to the ffmpeg binary. |
+
+Size reference (3840×2880, 120 frames of the sample DJI clip):
+
+| Encoder | Size |
+|---------|------|
+| OpenCV `mp4v` | 147 MB |
+| ffmpeg H.264 CRF 18 (default, visually lossless) | 102 MB |
+| ffmpeg H.264 CRF 23 (high quality) | 60 MB |
+| ffmpeg H.264 CRF 28 (smaller) | 33 MB |
+
+Example — smaller file, H.265, no audio:
+
+```sh
+./build/gyroflow_cpp_stabilize INPUT.MP4 --telemetry bridge.json -o out.mp4 \
+  --codec h265 --crf 26 --no-audio
 ```
 
 ## Implementation notes
