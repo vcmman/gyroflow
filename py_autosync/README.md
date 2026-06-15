@@ -52,6 +52,35 @@ python3 test_autosync_time.py     # standalone
 pytest test_autosync_time.py      # or via pytest
 ```
 
+## Variable frame timing (VFR / jitter / dropped frames)
+
+The whole pipeline is **timestamp-based, not frame-index based** (a core Gyroflow design
+principle), so non-uniform frame intervals are handled naturally in most places:
+
+1. **Offset search** — `find_offset` matches on each sample's *real* timestamp
+   (`gyro at of.t[k] - offs`), never on `k * dt`. As long as you feed real per-frame
+   timestamps, uneven spacing is fine. (The CLI `selftest`/`compare` modes generate *uniform*
+   frame times via `_frame_timestamps` only because they synthesise video; real data should pass
+   actual timestamps.)
+2. **Angular-velocity magnitude** — `quaternions_to_angular_velocity` divides each interval's
+   rotation by its **actual** `Δt = t[i+1]-t[i]`, not a constant fps, so ω is correct under VFR.
+   (For real optical-flow `estimated_gyro`, divide each frame's rotation by its real interval the
+   same way.)
+3. **Low-pass filter** — the *only* place that assumes a uniform sample rate (the Butterworth
+   biquad is designed for one scalar `sample_rate`). In practice this rarely bites:
+   - At cutoff 20 Hz, the video side is **skipped by the Nyquist guard when `2·20 > fps`** (i.e.
+     fps < 40, e.g. 24/30), so VFR of the video never reaches the filter; only at 60/120 fps is
+     the video actually filtered.
+   - The IMU side is a steady ~1 kHz stream, unaffected by video VFR.
+
+   For heavy VFR where the video side *is* filtered, mitigate with one of: use the median frame
+   interval as the nominal rate (`sample_rate = 1000 / median(diff(t))`); resample both signals
+   onto a uniform time grid before filtering and match on real timestamps afterward; or use a
+   time-aware filter (deviates from the biquad parity, use with care).
+
+**Summary:** offset alignment and ω magnitude are already VFR-safe; the residual approximation is
+the low-pass sample rate, which typical video frame rates dodge via the Nyquist skip.
+
 ## Parity with the C++/Rust port
 
 The algorithm is line-for-line faithful: 1 ms coarse sweep → 0.01 ms refine over ±2 ms, weighted
