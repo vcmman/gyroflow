@@ -195,8 +195,14 @@ def _build_bintree(gyro: GyroSeries):
     return keys[order], gyro.w[order]
 
 
+_WEIGHTS = np.array([70.0, 70.0, 100.0])
+
+
 def _cost(offs: float, of: GyroSeries, keys: np.ndarray, vals: np.ndarray) -> float:
-    """Mean weighted squared angular-velocity difference over matched samples (vectorised)."""
+    """Mean weighted squared angular-velocity difference over matched samples (vectorised).
+
+    Nearest-upper IMU lookup on the discrete sample grid (parity with Rust/C++).
+    """
     query = ((of.t - offs) * 1000.0).astype(np.int64)  # truncate toward zero (matches C++ cast)
     idx = np.searchsorted(keys, query, side="left")    # first key >= query (nearest upper)
     valid = idx < keys.shape[0]
@@ -206,18 +212,41 @@ def _cost(offs: float, of: GyroSeries, keys: np.ndarray, vals: np.ndarray) -> fl
     g = vals[idx[valid]]
     o = of.w[valid]
     d = g - o
-    weights = np.array([70.0, 70.0, 100.0])
-    s = float(np.sum((d * d) * weights))
+    s = float(np.sum((d * d) * _WEIGHTS))
+    return s / matches
+
+
+def _cost_interp(offs: float, of: GyroSeries, gt_ms: np.ndarray, gw: np.ndarray) -> float:
+    """Same cost, but the IMU value at the exact (continuous) query time is obtained by
+    linear interpolation between the bracketing samples instead of snapping to the next
+    sample. Removes the one-IMU-sample quantization bias (breaks bit-for-bit Rust parity).
+    """
+    query = of.t - offs  # exact ms, no grid snap
+    valid = query <= gt_ms[-1]  # mirror nearest-upper: a sample exists iff query <= last key
+    matches = int(np.count_nonzero(valid))
+    if of.t.shape[0] == 0 or matches <= of.t.shape[0] // 2:
+        return float("inf")
+    q = query[valid]
+    g = np.empty((q.shape[0], 3))
+    for c in range(3):
+        g[:, c] = np.interp(q, gt_ms, gw[:, c])  # end-clamped linear interpolation
+    d = g - of.w[valid]
+    s = float(np.sum((d * d) * _WEIGHTS))
     return s / matches
 
 
 def find_offset(of: GyroSeries, gyro: GyroSeries, initial_offset_ms: float, search_size_ms: float,
-                of_sample_rate_hz: float, gyro_sample_rate_hz: float, lpf_hz: float = 20.0) -> OffsetResult:
+                of_sample_rate_hz: float, gyro_sample_rate_hz: float, lpf_hz: float = 20.0,
+                interp: bool = False) -> OffsetResult:
     """Find the timestamp delay between ``of`` (video-side) and ``gyro`` (IMU-side).
 
     20 Hz forward-backward low-pass both signals, sweep [initial +/- search] at 1 ms, refine
     +/-2 ms at 0.01 ms. Cost weights x,y by 70 and z by 100, averaged over matched samples.
     Accept only when the optimum is within 90% of the search size (as in Rust).
+
+    interp=False (default): nearest-upper IMU lookup, bit-for-bit faithful to the Rust/C++ port
+    (accuracy ceiling ~= one IMU sample interval). interp=True: linear-interpolated IMU lookup,
+    which removes that quantization bias at the cost of exact parity.
     """
     result = OffsetResult()
     if len(of) == 0 or len(gyro) == 0:
@@ -238,27 +267,32 @@ def find_offset(of: GyroSeries, gyro: GyroSeries, initial_offset_ms: float, sear
     Lowpass.filter_gyro_forward_backward(lpf_hz, gyro_sample_rate_hz, gyro_item.w)
 
     keys, vals = _build_bintree(gyro_item)
+    # Interpolated path needs sorted float timestamps (ms) of the windowed gyro.
+    gt_ms, gw = (keys.astype(np.float64) / 1000.0, vals) if interp else (None, None)
+    cost = (lambda o: _cost_interp(o, of_f, gt_ms, gw)) if interp else (lambda o: _cost(o, of_f, keys, vals))
 
     # Coarse sweep at 1 ms.
     steps = int(search_size_ms) * 2
     best_off, best_cost = 0.0, float("inf")
     for i in range(steps):
         offs = initial_offset_ms - search_size_ms + float(i)
-        c = _cost(offs, of_f, keys, vals)
+        c = cost(offs)
         if c < best_cost:
             best_cost, best_off = c, offs
     if not np.isfinite(best_cost):
         return result
 
-    # Refine to 0.01 ms over +/-2 ms. The sweep is centred on the (fixed) coarse optimum; do not
-    # move the centre while searching (matches the Rust/C++ separate-accumulator loop).
+    # Refine to 0.01 ms around the (fixed) coarse optimum. Centre is fixed while searching
+    # (separate accumulator, matching the Rust/C++ loop). The faithful default sweeps the
+    # original one-sided window [center-2, center] (200 steps); the high-precision interp path
+    # sweeps the full symmetric [center-2, +2] so refine can also climb above the coarse pick.
     center = best_off
     refine_size = 2.0
-    refine_steps = int(refine_size * 100.0)
-    step = refine_size / refine_steps
+    step = 0.01
+    refine_steps = (int(2.0 * refine_size / step) + 1) if interp else int(refine_size * 100.0)
     for i in range(refine_steps):
         offs = center + (-refine_size + i * step)
-        c = _cost(offs, of_f, keys, vals)
+        c = cost(offs)
         if c < best_cost:
             best_cost, best_off = c, offs
 

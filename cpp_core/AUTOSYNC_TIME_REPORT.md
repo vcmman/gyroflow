@@ -98,7 +98,8 @@ accuracy above. This mirrors real autosync, which relies on rich scene/handheld 
 ## 6. Possible next steps
 
 - Optional interpolated (vs nearest-upper) IMU lookup to remove the ~0.3 ms bias for the
-  evaluator use-case (kept off by default for Rust parity).
+  evaluator use-case (kept off by default for Rust parity). **Done in `py_autosync`
+  (`interp=True`); see §8.** Port the same switch to C++ `findOffset`.
 - Port `find_offset::visual_features` (method 1) and `rs_sync` (method 2) for completeness.
 - Wire real optical-flow `estimated_gyro` in, to drive the same `findOffset` from decoded video.
 
@@ -140,3 +141,57 @@ Chronological record of how this was built and the decisions/findings along the 
 Faithfulness note: where Rust behaviour and "more correct" behaviour diverged (nearest-upper
 lookup bias, low-fps low-pass interaction), parity was kept and the effect documented rather than
 silently "fixed", so results stay comparable to the Rust engine.
+
+## 8. Precision characterisation & higher-precision approaches
+
+### 8.1 Measured precision (variance study)
+
+Monte-Carlo on the bundled DJI clip (Python `py_autosync/variance_experiment.py`, 30 fps).
+Two error components are distinct in nature:
+
+- **Random jitter (variance):** σ ≈ **0.05 ms** at realistic SNR (peak |ω| ≈ 530 °/s). Re-running
+  on identical input is deterministic (variance 0). Only rises past ~0.15 ms when injected noise
+  reaches 20–40 °/s. A constant gyro **zero-bias is ≲0.1 ms even at 5 °/s** — alignment is driven
+  by the AC shape, not the DC level.
+- **Systematic bias:** **+0.2…0.5 ms**, deterministic, bounded by one IMU sample interval. This is
+  the dominant spread across different offsets/segments, *not* random variance.
+
+**Accuracy ceiling = one IMU sample interval (≈1 ms @ 1 kHz)** because the nearest-upper lookup
+snaps each video sample to a discrete IMU sample. ⇒ repeatability ~0.05 ms, absolute accuracy
+~1 IMU sample. A ~1 ms spread across segmented estimates is therefore *not* noise; it is the
+per-segment ceiling plus possible real **clock drift** (diagnose by trend vs time) or low-motion
+conditioning.
+
+### 8.2 Interpolated lookup result
+
+Implemented `interp=True` in `py_autosync` (linear-interpolated IMU lookup + symmetric refine
+window). Measured at 30 fps: bias **+0.166 → −0.005 ms**, repeat-error **+0.446 → +0.009 ms**
+(~50× better). Default stays nearest-upper for Rust/C++ parity. Also fixed a latent refine-window
+bug (original stepped only `[center-2, center]`, one-sided).
+
+### 8.3 Higher-precision calibration approaches (survey)
+
+Ordered by change cost → achievable precision:
+
+1. **Sub-grid refinement (cheap, µs-level):** interpolated lookup (done); **parabolic peak
+   interpolation** of the cost curve (analytic vertex of 3 points around the min) to remove the
+   0.01 ms refine grid; up-sample before correlating.
+2. **Frequency-domain:** **GCC-PHAT** (Knapp & Carter 1976) for a sharp sub-sample peak;
+   cross-spectrum **phase-slope** (delay = −dφ/dω) for fractional delay directly.
+3. **Continuous-time / model-based (gold standard, tens of µs):** B-spline continuous-time batch
+   estimation (Furgale, Barfoot, Sibley, ICRA 2012) — time offset is a continuous, differentiable
+   parameter jointly optimised with extrinsics/intrinsics. Furgale, Rehder, Siegwart, *Unified
+   Temporal and Spatial Calibration* (IROS 2013); **Kalibr** toolbox (Rehder et al., T-RO 2016).
+4. **Online / filter-based (time-varying td):** Li & Mourikis (IJRR 2014); Qin & Shen,
+   VINS-Mono online temporal calibration (IROS 2018).
+5. **Clock drift:** segment-wise offset + linear regression → slope = skew (ppm), resample one
+   stream; i.e. an offset+skew clock model (cf. NTP/PTP).
+6. **Estimation quality:** higher IMU sample rate (raises the ceiling directly); robust loss
+   (Huber); inverse-covariance weighting from Allan-variance gyro noise; motion gate.
+7. **Hardware sync (<<1 µs):** common clock, hardware timestamping, trigger/GenLock, PTP (IEEE 1588).
+
+**How Kalibr substantiates its (tens-of-µs) precision:** there is no ground-truth offset on real
+data, so it relies on (a) the estimator's **posterior covariance** on td (inverse Hessian),
+(b) **simulation** recovery of injected offsets, (c) **NEES consistency** checks that the reported
+covariance is honest, and (d) **cross-dataset repeatability** — the continuous-time spline makes td
+a grid-free differentiable parameter, which is why it beats the discrete correlation ceiling.

@@ -44,6 +44,7 @@ Both `dji_quaternions_full.csv` and `dji_camera_data.csv` are auto-detected.
 | `autosync_time.py` | Core: quaternion helpers, `Lowpass`, `quaternions_to_angular_velocity`, `resample_angular_velocity`, `find_offset`, `load_quaternions` |
 | `gyroflow_autosync.py` | CLI: `selftest` / `compare` / `omega` |
 | `test_autosync_time.py` | Unit tests (lowpass, ω, recovery, noise robustness) |
+| `variance_experiment.py` | Monte-Carlo precision study: bias / variance / range vs noise, repeatability, gyro-bias robustness |
 
 ## Tests
 
@@ -94,3 +95,48 @@ ties differ by at most one 0.01 ms refine step due to float accumulation in the 
 On the bundled DJI clip, offset recovery is **sub-millisecond** (~0.4 ms RMS at 30 fps), with a
 small positive bias from the nearest-IMU-sample lookup on the ~1 kHz grid — inherent to the
 algorithm and kept for parity.
+
+## Precision & accuracy (measured)
+
+Monte-Carlo study on the bundled DJI clip (`variance_experiment.py`, 30 fps). Two error sources
+are fundamentally different and must not be conflated:
+
+| Source | Magnitude | Nature |
+|--------|-----------|--------|
+| Random jitter (noise-driven) | **σ ≈ 0.05 ms** at realistic SNR (peak \|ω\|≈530 °/s) | random; averages out over repeats. Only grows past ~0.15 ms when noise reaches 20–40 °/s |
+| Systematic lookup bias | **+0.2…0.5 ms**, bounded by one IMU sample interval | deterministic; same value for the same data — *not* variance. The dominant spread across offsets/segments |
+| Constant gyro zero-bias | **≲ 0.1 ms** even at 5 °/s | negligible — alignment is driven by the AC shape, not DC level |
+| Refine grid floor | 0.01 ms | search step |
+
+**Accuracy ceiling = one IMU sample interval (≈1 ms @ 1 kHz).** The estimator snaps each video
+sample to the next IMU sample, so offsets finer than one sample land on the same pair and cannot
+be distinguished. Repeatability on identical input is exact (deterministic estimator).
+
+### Interpolated lookup (`interp=True`) — breaks the ceiling
+
+`find_offset(..., interp=True)` linearly interpolates the IMU value at the exact (continuous)
+query time instead of snapping to the next sample. This removes the quantization bias (parity with
+the Rust/C++ port is intentionally given up). Measured on the DJI clip at 30 fps:
+
+| mode | bias | std | repeat-error @7.3 ms |
+|------|------|-----|----------------------|
+| `nearest` (default, C++-faithful) | +0.166 ms | 0.210 ms | +0.446 ms |
+| `interp` | **−0.005 ms** | **0.020 ms** | **+0.009 ms** |
+
+≈50× better absolute accuracy (~0.01 ms). The default stays bit-for-bit faithful to the port; pass
+`interp=True` for the high-precision mode. The interp path also fixes a latent bug in the original
+refine loop, which only stepped 200×0.01 ms from `center-2` — i.e. searched the one-sided window
+`[center-2, center]` and could never climb above the coarse pick; the interp path sweeps the full
+symmetric `[center-2, +2]`.
+
+### Segmented estimates differ by ~1 ms — what it means
+
+If 5 per-segment offsets spread by ~1 ms, that is **20× the random floor (0.05 ms)**, so it is
+*not* noise or gyro bias. ~1 ms is exactly the per-segment scatter ceiling (one IMU sample +
+motion-conditioning). Diagnose by **pattern**: a monotonic trend vs segment time ⇒ real
+camera/IMU **clock drift** (offset is time-varying; needs offset+skew correction, not a single
+constant); random scatter correlated with low-motion / shallow-cost segments ⇒ poorly conditioned
+segments; otherwise the residual is the lookup quantization (use `interp=True`).
+
+See `../cpp_core/AUTOSYNC_TIME_REPORT.md` §8 for higher-precision calibration approaches
+(parabolic peak interpolation, GCC-PHAT, continuous-time/Kalibr, offset+skew drift models).
