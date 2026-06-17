@@ -178,6 +178,21 @@ Example — smaller file, H.265, no audio:
   --codec h265 --crf 26 --no-audio
 ```
 
+## IMU orientation (raw-gyro sources)
+
+The DJI path here uses fused attitude, so no IMU axis config is needed. But if you feed
+**raw gyro** into Gyroflow (gcsv / a camera Gyroflow integrates) to produce the bridge, the
+UI **"IMU orientation"** must map your sensor axes into Gyroflow's expected input frame,
+which — relative to the OpenCV image frame (X=right/width, Y=down/height, Z=forward) — is:
+
+> **X = up, Y = left, Z = back** (`imu_orientation` = `XYZ` means the data is already this).
+
+So a gyro aligned to the OpenCV image frame needs **`imu_orientation = yxz`** (not `Xyz`/`XYZ`):
+the raw gyro goes through both `orient()` and a fixed `(-g[1],g[0],g[2])` swap baked into every
+integrator, which compose with the render's `diag(1,−1,−1)` flip. Verified in
+`tests/test_imu_orientation.cpp`; full derivation + design rationale in
+[`PIPELINE.md`](PIPELINE.md) ("Coordinate conventions").
+
 ## Validation against Rust Gyroflow
 
 The math is cross-checked against Gyroflow's golden per-frame metadata, independent of any

@@ -100,7 +100,10 @@ fov ≤0.0012% over 973 frames) via `tools/gyroflow_cpp_validate` (OpenCV-free) 
 and validation numbers live in `cpp_core/README.md` and `cpp_core/DEVELOPMENT_PLAN.md`; the
 end-to-end algorithm flow + exact parameters behind the result video are in
 `cpp_core/PIPELINE.md`; the quantitative head-to-head vs Gyroflow under identical parameters
-(math, frame PSNR, stabilization quality) is in `cpp_core/COMPARISON.md`.
+(math, frame PSNR, stabilization quality) is in `cpp_core/COMPARISON.md`. Coordinate
+conventions (and why a gyro in the OpenCV image frame needs Gyroflow `imu_orientation = yxz`,
+Gyroflow's expected IMU input frame being X=up/Y=left/Z=back) are in `cpp_core/PIPELINE.md`
+("Coordinate conventions"), verified by `cpp_core/tests/test_imu_orientation.cpp`.
 
 Run the stabilizer (DJI fused-quaternion path, OpenCV-fisheye lens, adaptive zoom on):
 ```sh
