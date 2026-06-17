@@ -61,6 +61,8 @@ void usage(const char* prog) {
     std::cerr << "Usage: " << prog
               << " <input.mp4> --telemetry <file.json> -o <output.mp4>\n"
               << "  Stabilization: [--max-zoom 130] [--no-adaptive-zoom] [--fov 1.0]\n"
+              << "  Framing:       [--keep-sensor] [--output-size WxH]"
+              << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
               << " [--no-ffmpeg] [--ffmpeg-bin PATH]\n"
               << "  Misc:          [--max-frames N] [--threads N]\n"
@@ -77,6 +79,13 @@ int main(int argc, char** argv) {
     double max_zoom = 130.0;
     long max_frames = 0;
     int threads = 0;
+
+    // Output framing. By default the rendered size matches Gyroflow's lens output_dimension
+    // (e.g. a 16:9 crop of a 4:3 sensor). --keep-sensor renders the full input sensor;
+    // --output-size WxH overrides both.
+    bool keep_sensor = false;
+    int out_w_override = 0;
+    int out_h_override = 0;
 
     // Encoder options. ffmpeg is used when available (proper H.264/H.265 compression and
     // audio passthrough); --no-ffmpeg falls back to OpenCV's mp4v writer.
@@ -102,6 +111,17 @@ int main(int argc, char** argv) {
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
+        else if (a == "--keep-sensor") keep_sensor = true;
+        else if (a == "--output-size") {
+            const std::string s = next("--output-size");
+            const std::size_t xpos = s.find_first_of("xX*");
+            if (xpos == std::string::npos) {
+                std::cerr << "--output-size expects WxH, got: " << s << "\n";
+                return 2;
+            }
+            out_w_override = std::stoi(s.substr(0, xpos));
+            out_h_override = std::stoi(s.substr(xpos + 1));
+        }
         else if (a == "--no-ffmpeg") use_ffmpeg = false;
         else if (a == "--ffmpeg-bin") ffmpeg_bin = next("--ffmpeg-bin");
         else if (a == "--codec") codec = next("--codec");
@@ -142,17 +162,25 @@ int main(int argc, char** argv) {
     const int height = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
     const long total = static_cast<long>(cap.get(cv::CAP_PROP_FRAME_COUNT));
 
-    // Phase 2 renders the full sensor: output == input dimensions. The lens profile's
-    // output_dimension (e.g. Gyroflow's 16:9 crop of a 4:3 sensor) is intentionally
-    // ignored so new_K's principal point, the undistort kernel's output buffer, and the
-    // adaptive-zoom inscribed-rect all share one coordinate system. Matching Gyroflow's
-    // cropped output_dimension is a follow-up.
     LensProfile lens = *meta.lens_profile;
-    lens.output_width = width;
-    lens.output_height = height;
+
+    // Resolve the rendered output framing. Default: match Gyroflow and crop to the lens
+    // output_dimension (e.g. 3840x2160 16:9 from a 3840x2880 4:3 sensor). --keep-sensor
+    // renders the full input sensor; --output-size overrides both. These dims drive new_K's
+    // principal point, the inscribed-rect aspect, and the output buffer, while the source
+    // intrinsics and per-row matrix count stay in input dims.
+    int out_w = lens.output_width > 0 ? lens.output_width : width;
+    int out_h = lens.output_height > 0 ? lens.output_height : height;
+    if (keep_sensor) { out_w = width; out_h = height; }
+    if (out_w_override > 0 && out_h_override > 0) {
+        out_w = out_w_override;
+        out_h = out_h_override;
+    }
 
     std::cout << "Input: " << width << "x" << height << " @ " << fps << " fps, "
               << total << " frames\n";
+    std::cout << "Output: " << out_w << "x" << out_h
+              << (out_w == width && out_h == height ? " (full sensor)" : " (cropped)") << "\n";
     std::cout << "Source: " << meta.detected_source << ", readout="
               << meta.frame_readout_time_ms << " ms\n";
 
@@ -173,7 +201,7 @@ int main(int argc, char** argv) {
     FILE* ff_pipe = nullptr;
     cv::VideoWriter writer;
     if (ffmpeg_ok) {
-        ff_pipe = openFfmpegPipe(ffmpeg_bin, output, input, width, height, fps, codec, crf, audio);
+        ff_pipe = openFfmpegPipe(ffmpeg_bin, output, input, out_w, out_h, fps, codec, crf, audio);
         if (!ff_pipe) {
             std::cerr << "Failed to start ffmpeg pipe\n";
             return 1;
@@ -182,7 +210,7 @@ int main(int argc, char** argv) {
                   << " crf " << crf << (audio ? " + audio copy" : "") << "\n";
     } else {
         if (use_ffmpeg) std::cout << "ffmpeg not found, falling back to OpenCV mp4v writer\n";
-        writer.open(output, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(width, height));
+        writer.open(output, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(out_w, out_h));
         if (!writer.isOpened()) {
             std::cerr << "Failed to open output writer: " << output << "\n";
             return 1;
@@ -193,6 +221,8 @@ int main(int argc, char** argv) {
     tp.fov = fov;
     tp.frame_readout_time_ms = meta.frame_readout_time_ms;
     tp.frame_readout_direction = meta.frame_readout_direction;
+    tp.output_width = out_w;
+    tp.output_height = out_h;
 
     // Precompute per-frame adaptive zoom over the whole clip (the temporal smoothing needs
     // neighbouring frames even when only a subset is rendered).
@@ -221,7 +251,7 @@ int main(int argc, char** argv) {
     const std::array<std::uint8_t, 3> background{0, 0, 0};
 
     cv::Mat frame;
-    cv::Mat out(height, width, CV_8UC3);
+    cv::Mat out(out_h, out_w, CV_8UC3);
     long i = 0;
     while (cap.read(frame)) {
         if (frame.empty()) break;
@@ -233,14 +263,14 @@ int main(int argc, char** argv) {
             computeFrameTransform(ts_ms, meta.quaternions, smoothed, lens, width, height, tp);
 
         ImageBuffer src{frame.data, width, height, static_cast<int>(frame.step), 3};
-        ImageBuffer dst{out.data, width, height, static_cast<int>(out.step), 3};
+        ImageBuffer dst{out.data, out_w, out_h, static_cast<int>(out.step), 3};
         undistortFrame(t, src, dst, background, threads);
 
         if (ff_pipe) {
             // Write tightly-packed BGR24 rows (skip any cv::Mat row padding).
-            for (int y = 0; y < height; ++y) {
-                if (std::fwrite(out.ptr(y), 1, static_cast<std::size_t>(width) * 3, ff_pipe) !=
-                    static_cast<std::size_t>(width) * 3) {
+            for (int y = 0; y < out_h; ++y) {
+                if (std::fwrite(out.ptr(y), 1, static_cast<std::size_t>(out_w) * 3, ff_pipe) !=
+                    static_cast<std::size_t>(out_w) * 3) {
                     std::cerr << "\nffmpeg pipe write failed (frame " << i << ")\n";
                     pclose(ff_pipe);
                     return 1;

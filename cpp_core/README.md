@@ -3,12 +3,75 @@
 UI-free C++ port of Gyroflow's stabilization core. The target shape is a small
 dependency-light library plus CLI tools, validated against Rust Gyroflow output. See
 [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) for the full phased plan and the porting
-references into `../src/core/`.
+references into `../src/core/`, [`PIPELINE.md`](PIPELINE.md) for the end-to-end algorithm
+flow + exact parameters behind the current result video, and [`COMPARISON.md`](COMPARISON.md)
+for the quantitative head-to-head vs Rust Gyroflow under identical parameters.
+
+## Quick start (set up a machine and stabilize a DJI clip)
+
+End-to-end on a fresh Linux box, from zero to a stabilized MP4. Tested on Ubuntu 20.04
+(cmake 3.16, g++ 9, OpenCV 4.2).
+
+**1. Install build + runtime dependencies**
+
+```sh
+# Debian/Ubuntu. The core lib needs only a C++17 compiler + cmake; the CLI also needs
+# OpenCV (video decode/encode fallback) and ffmpeg (preferred encoder, on PATH).
+sudo apt-get update
+sudo apt-get install -y build-essential cmake git libopencv-dev ffmpeg python3 python3-numpy
+```
+
+No sudo? Install a static ffmpeg into a PATH dir instead (see "Encoding" below), and use a
+conda/vcpkg OpenCV. macOS: `brew install cmake opencv ffmpeg`.
+
+**2. Get a Gyroflow binary** (only needed to export the telemetry bridge — see step 4; the
+native DJI parser is a later phase). Download the official AppImage/app from
+<https://gyroflow.xyz> and put it on `PATH` as `gyroflow` (or pass `--gyroflow-bin`):
+
+```sh
+# Linux AppImage example:
+chmod +x Gyroflow-*.AppImage && sudo mv Gyroflow-*.AppImage /usr/local/bin/gyroflow
+gyroflow --version    # sanity check
+```
+
+**3. Build the C++ stabilizer**
+
+```sh
+git clone <this-repo> && cd <repo>           # or use your existing checkout
+cmake -S cpp_core -B cpp_core/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp_core/build -j
+(cd cpp_core/build && ctest --output-on-failure)    # optional: 5/5 should pass
+```
+
+This produces `cpp_core/build/gyroflow_cpp_stabilize` (needs OpenCV; the build prints
+`gyroflow_cpp_stabilize: enabled` when found).
+
+**4. Export the telemetry bridge JSON for your clip** (reuses Gyroflow to get the matched
+lens profile + readout time + attitude quaternions; the C++ doesn't parse DJI protobuf yet):
+
+```sh
+python3 tools/export_bridge_json.py MY_DJI_CLIP.MP4 -o my_bridge.json
+# already have a .gyroflow project / camera CSV? pass --project / --camera-csv to skip re-export
+```
+
+**5. Stabilize** (adaptive zoom + 16:9 output + ffmpeg H.264 + audio, all on by default):
+
+```sh
+./cpp_core/build/gyroflow_cpp_stabilize MY_DJI_CLIP.MP4 --telemetry my_bridge.json -o out.mp4
+# quick preview of the first 120 frames:  add  --max-frames 120
+```
+
+`out.mp4` is the stabilized result. See the flag tables below to change zoom, framing, codec,
+etc., and [`PIPELINE.md`](PIPELINE.md) for what each stage does.
+
+> Caveat: input is currently decoded 8-bit via OpenCV, so 10-bit/HDR DJI footage is truncated
+> (native libav decode is a later phase). Stabilization quality is unaffected; only bit depth.
 
 ## Status
 
-Phase 1 (headless DJI stabilizer) and Phase 2 (adaptive zoom) are implemented and run
-end-to-end on a real DJI clip, producing a stabilized MP4 with dynamic cropping.
+Phase 1 (headless DJI stabilizer) and Phase 2 (adaptive zoom + Gyroflow `output_dimension`
+framing) are implemented and run end-to-end on a real DJI clip, producing a stabilized MP4
+with dynamic cropping at Gyroflow's 16:9 output size (by default).
 
 Implemented:
 
@@ -27,9 +90,9 @@ Implemented:
 - **Telemetry bridge** (`telemetry_io.*`, `../tools/export_bridge_json.py`) — Phase 1 reads
   a JSON sidecar exported from the Rust Gyroflow CLI instead of parsing DJI protobuf in C++.
 
-Not yet done: native DJI metadata parser, native FFmpeg I/O (Phase 1 uses OpenCV video I/O,
-no audio), cropped `output_dimension` (renders the full sensor; see the note in the plan),
-horizon lock, additional lens models, GPU.
+Not yet done: native DJI metadata parser, native libav **decode** (input is still OpenCV
+`VideoCapture`, 8-bit BGR), horizon lock, bicubic/lanczos interpolation, additional lens
+models, GPU. (Output framing now matches Gyroflow's cropped `output_dimension`.)
 
 ## Build & test
 
@@ -39,8 +102,9 @@ cmake --build build -j
 (cd build && ctest --output-on-failure)   # ctest 3.16 has no --test-dir; run from build/
 ```
 
-The `gyroflow_cpp_stabilize` CLI is built when OpenCV is found; the core library and unit
-tests have no external dependencies (JSON is vendored under `third_party/`).
+The `gyroflow_cpp_stabilize` CLI is built when OpenCV is found; the core library, unit
+tests, and the `gyroflow_cpp_validate` golden-comparison dumper have no external
+dependencies (JSON is vendored under `third_party/`).
 
 ## Run the headless stabilizer
 
@@ -60,8 +124,14 @@ Stabilization options:
 | `--max-zoom <pct>` | 130 | Dynamic-zoom ceiling (percent). |
 | `--no-adaptive-zoom` | off | Disable dynamic crop (renders with `--fov`). |
 | `--fov <f>` | 1.0 | Static zoom (`<1` zooms in); disables adaptive zoom. |
+| `--keep-sensor` | off | Render the full input sensor (e.g. 4:3) instead of the lens crop. |
+| `--output-size <WxH>` | lens | Override the output framing (default: lens `output_dimension`). |
 | `--max-frames <n>` | all | Process only the first N frames (quick preview). |
 | `--threads <n>` | auto | CPU threads for the undistort kernel. |
+
+By default the rendered size matches Gyroflow's lens `output_dimension` (e.g. **3840×2160
+16:9** cropped from a 3840×2880 4:3 sensor). `--keep-sensor` renders the full sensor and
+`--output-size WxH` sets an explicit size.
 
 ## Encoding (ffmpeg)
 
@@ -108,6 +178,64 @@ Example — smaller file, H.265, no audio:
   --codec h265 --crf 26 --no-audio
 ```
 
+## Validation against Rust Gyroflow
+
+The math is cross-checked against Gyroflow's golden per-frame metadata, independent of any
+video encoder (so it isolates the algorithms from rendering noise). `gyroflow_cpp_validate`
+dumps the smoothed quaternions + adaptive FOVs; `../tools/compare_gyroflow_metadata.py`
+diffs them against `gyroflow ... --export-metadata "3:meta.json"`. Over all 973 frames of
+the sample clip:
+
+| Quantity | vs Gyroflow | max | mean |
+|----------|-------------|-----|------|
+| smoothed orientation (`stab_quat`) | smoothing port | **0.0147°** | 0.0037° |
+| adaptive fov (`fov_scale`) | zoom + 16:9 framing | **0.0012%** | 0.0004% |
+| org_quat (sampling sanity) | raw interpolation | 0.0144° | 0.0037° |
+
+```sh
+gyroflow PROJECT.gyroflow --export-metadata "3:/tmp/gf_meta.json"
+./build/gyroflow_cpp_validate bridge.json --frames 973 > /tmp/cpp.csv
+python3 ../tools/compare_gyroflow_metadata.py /tmp/gf_meta.json /tmp/cpp.csv   # -> PASS
+```
+
+**Frame PSNR.** Rendering both tools from an identical 8-bit source (the 10-bit clip must be
+transcoded first — Gyroflow's encoder rejects `YUV420P10LE` here), both on **bilinear**, gives
+~33.5 dB mean at the 16:9 output with no global shift and matched brightness. The dual-encoder
+noise floor is ~38 dB, so the real geometry residual is ~0.11 px. Matching interpolation only
+gains ~0.6 dB vs Gyroflow's default Lanczos4, so the residual is **not** mainly interpolation —
+it's dominated by quaternion-sampling FP (Gyroflow rounds the lookup to integer µs; ~0.09 px)
+plus minor resampling differences. No systematic framing error; ~0.11 px is near the floor for
+two independent codebases through two lossy encoders. See [`COMPARISON.md`](COMPARISON.md) for
+the full head-to-head.
+
+## Stabilization quality (how steady is the result)
+
+The checks above answer *"does the C++ match Gyroflow"*. A separate question is *"how much
+shake did we actually remove"* — measured on the output itself, not against a reference.
+`../tools/stabilization_quality.py` reports intra-video metrics on a centre-cropped,
+downscaled grayscale sequence (so the 4:3 input and the 16:9 output are comparable):
+
+- **ITF** — mean PSNR between *consecutive* frames (steadier ⇒ higher).
+- **phase-correlation shift** — global translation between consecutive frames (the dominant
+  pan/tilt shake; lower ⇒ steadier).
+- **optical-flow magnitude** — Farneback flow (captures rotation / complex residual motion).
+
+```sh
+python3 ../tools/stabilization_quality.py --compare INPUT.MP4 stabilized.mp4 --max-frames 300
+```
+
+On the sample clip (first 300 frames, original → stabilized):
+
+| Metric | original | stabilized | change |
+|--------|----------|------------|--------|
+| ITF (consecutive-frame PSNR) | 17.57 dB | 19.13 dB | **+1.56 dB** |
+| phase-corr shift (camera shake) | 10.47 px | 1.15 px | **−89%** |
+| optical-flow magnitude | 12.59 px | 7.59 px | −40% |
+
+The global camera shake is almost entirely removed (−89%); the residual optical flow (~7.6
+px) is the walking subject + parallax — real scene motion the stabilizer should *not* remove,
+which is why ITF/flow don't go to zero.
+
 ## Implementation notes
 
 - **Bridge-first.** The hard DJI `djmd`/DVTM protobuf parse is deferred; the algorithm port
@@ -121,7 +249,13 @@ Example — smaller file, H.265, no audio:
 - **Validation on `data/DJI_..._0032_D.MP4`** (3840×2880, OsmoAction4, 21.82 ms readout):
   center-crop inter-frame motion reduced ~21% (subject is walking); adaptive zoom cut
   worst-frame black border from 7.4% (Phase 1 static fov) to **0.07%**.
-- **Dimension-consistency fix.** The bridge lens profile carries Gyroflow's 16:9
-  `output_dimension`; using it for `new_K`'s principal point while rendering the 4:3 sensor
-  produced inconsistent coordinate systems and a large border. Phase 2 forces output ==
-  input (full sensor); honoring the 16:9 crop is a tracked follow-up.
+- **Output framing matches Gyroflow.** Distinct input-vs-output dimensions are threaded
+  through the pipeline: `new_K`'s principal point uses the **output** centre and `fov` is
+  scaled by `width/output_width` (`get_fov`), while the source intrinsics `f,c` and the
+  per-row matrix count stay in **input** dims. Adaptive zoom uses the output aspect for the
+  inscribed rectangle but keeps the border ring / `new_K` centre / fov denominator in input
+  dims (Gyroflow temporarily sets output=input during the fov calc, `zooming/mod.rs:48`).
+  The undistort kernel iterates output pixels and selects the rolling-shutter matrix by the
+  **source** row (two-pass), mirroring `stabilize.rs`. Default output is the 16:9
+  `output_dimension`; `--keep-sensor` renders the full 4:3 sensor (worst black-border
+  ≈0.16% for the crop, ≈0.07% for the full sensor).

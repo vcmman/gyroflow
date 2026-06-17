@@ -182,24 +182,30 @@ sync, raw-IMU integration, non-DJI cameras, 10-bit/HDR, keyframes.
 
 ## 4. Later phases
 
-- **Phase 2 — Parity & quality:** ✅ **adaptive zoom implemented**
+- **Phase 2 — Parity & quality:** ✅ **adaptive zoom + Gyroflow output_dimension framing**
   (`zooming/adaptive_zoom.{hpp,cpp}`): forward `undistortPoints` (inverse fisheye +
   `new_K·R` reproject, with a `W>0` behind-camera guard), per-frame inscribed-rect FOV
   search, EnvelopeFollower temporal smoothing (method 1, the DJI default), and `max_zoom`
   clamp. On `data/DJI_..._0032_D.MP4` black borders dropped from 7.4% worst (Phase 1
-  static fov) to **0.07% worst** at the default 130% max-zoom. Remaining Phase 2 items:
-  match Gyroflow's cropped `output_dimension` (it outputs 3840×2160 16:9 from the 3840×2880
-  4:3 sensor; the C++ currently renders the full 4:3 sensor — see note below), horizon
-  lock, bicubic/lanczos interpolation, color-range handling. Goal: visually
-  indistinguishable from Rust Gyroflow on DJI clips.
+  static fov) to **0.07% worst** at the default 130% max-zoom. The renderer now matches
+  Gyroflow's cropped `output_dimension` (3840×2160 16:9 from the 3840×2880 4:3 sensor) by
+  default — see the resolved note below. Remaining Phase 2 items: horizon lock,
+  bicubic/lanczos interpolation, color-range handling. Goal: visually indistinguishable
+  from Rust Gyroflow on DJI clips.
 
-  > **Output-dimension note / bug fixed:** the bridge lens profile carries Gyroflow's
-  > 16:9 `output_dimension` (3840×2160). Letting that drive `new_K`'s principal point while
-  > the kernel rendered the 2880-tall sensor created three inconsistent coordinate systems
-  > and left a large bottom border. Phase 2 forces output == input (full sensor) for
-  > self-consistency; honoring the 16:9 crop requires threading distinct input vs output
-  > dims through `computeFrameTransform` + `computeAdaptiveFovs` (output center & aspect)
-  > and the rolling-shutter row indexing.
+  > **Output-dimension note / RESOLVED:** the bridge lens profile carries Gyroflow's 16:9
+  > `output_dimension` (3840×2160). Distinct input-vs-output dims are now threaded through
+  > the pipeline: `TransformParams::output_width/height` drive `new_K`'s principal point
+  > (`output/2`) and scale `fov` by `width/output_width` (`get_fov`), while the source
+  > intrinsics `f,c` and the per-row matrix count stay in input dims. `computeAdaptiveFovs`
+  > uses the output aspect for the inscribed rectangle but keeps the border ring, `new_K`
+  > centre, search centre and fov denominator in input dims (Gyroflow temporarily sets
+  > output=input during the fov calc, `zooming/mod.rs:48`, so `output_dim.0` collapses to
+  > the input width). The undistort kernel iterates output pixels and selects the
+  > rolling-shutter matrix by **source** row (two-pass), mirroring `stabilize.rs`. CLI:
+  > `--keep-sensor` (full 4:3 sensor) and `--output-size WxH` switch modes; default is the
+  > 16:9 crop. The 16:9 crop's worst black-border fraction stays ≈0.16% (clip-boundary
+  > frame), confirming the framing is self-consistent.
 - **Phase 3 — Native telemetry parser:** port DJI `djmd`/DVTM protobuf parsing (replaces
   the JSON bridge), readout-time extraction, lens-profile DB (CBOR+gzip) loading and
   matching. Removes the Rust/Python dependency.
@@ -248,11 +254,25 @@ hand-rolled routine.
    `tools/export_bridge_json.py`).
 5. ✅ `DefaultAlgo` smoothing port (`smoothing/default_algo.{hpp,cpp}`); params verified to
    match the project export (smoothness 0.5, max_smoothness 1.0, alpha_0_1s 0.1, per_axis 0).
-6. ⬜ PSNR comparison vs Rust Gyroflow frames; tune until within tolerance. (Blocked on
-   matching framing: Gyroflow applies adaptive zoom (window 4.0) by default — see Phase 2.)
+6. ✅ Golden comparison vs Rust Gyroflow. **Math cross-check (encoder-independent):**
+   `tools/gyroflow_cpp_validate` + `tools/compare_gyroflow_metadata.py` diff the smoothed
+   quaternions and adaptive fovs against `gyroflow --export-metadata`. Over 973 frames:
+   smoothing ≤0.0147° (mean 0.0037°), adaptive fov ≤0.0012% rel — i.e. the smoothing and
+   adaptive-zoom ports (incl. 16:9 framing) match golden essentially exactly. **Frame PSNR:**
+   both tools rendered from an identical 8-bit source, both bilinear, give ~33.5 dB at the
+   16:9 output (no global shift, matched brightness); the dual-encoder floor is ~38 dB so the
+   real residual is ~0.11 px — quaternion-sampling FP + resampling, not mainly interpolation
+   (matching interpolation gained only ~0.6 dB). Both outputs also remove the same camera
+   shake (89.0% vs 88.9%). Full head-to-head in `COMPARISON.md`. Conventions verified: render
+   samples smoothed at `frame*1000/fps` (export uses `+readout/2`); fovs at `frame*1000/fps`;
+   exported `stab_quat = org*smoothed^-1`.
 
 **End-to-end status:** runs on `data/DJI_20260605174353_0032_D.MP4` (3840×2880, OsmoAction4,
 21.82 ms readout) producing a stabilized MP4. Confirmed faithful: no sync offset
 (`offsets: {}`), `integration_method 0` with no axis remap, frame timestamp = `frame*1000/fps`
-matches `timestamp_at_frame`. Center-crop inter-frame motion reduced ~21% (subject is walking,
-so scene motion remains). Remaining gap to Gyroflow = adaptive zoom (Phase 2).
+matches `timestamp_at_frame`. Stabilization quality (`tools/stabilization_quality.py`,
+before→after): global camera shake (phase-correlation) **−89%** (10.5→1.2 px), optical-flow
+motion −40% (residual ≈7.6 px is the walking subject, not shake), ITF +1.56 dB. Adaptive zoom
+and the 16:9 `output_dimension` crop match Gyroflow's framing, and the C++ is functionally
+equivalent to Gyroflow under identical parameters (see `COMPARISON.md`); the remaining real
+gap is 10-bit input decode (Phase 4), not the algorithm.

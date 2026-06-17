@@ -45,30 +45,56 @@ inline bool sampleBilinear(const ImageBuffer& img, double u, double v,
     return true;
 }
 
+// Map an output pixel through one per-row matrix + fisheye distortion to a source pixel.
+// Returns false when the point falls behind the virtual camera (w <= 0), matching the
+// kernel's `_w > 0` guard in cpu_undistort.rs / stabilize.rs.
+inline bool rotateAndDistort(double x, double y, const std::array<double, 9>& m,
+                             const std::array<double, 4>& k,
+                             const std::array<double, 2>& f,
+                             const std::array<double, 2>& c, double& u, double& v) {
+    const double _x = x * m[0] + y * m[1] + m[2];
+    const double _y = x * m[3] + y * m[4] + m[5];
+    const double _w = x * m[6] + y * m[7] + m[8];
+    if (_w <= 0.0) return false;
+    const auto uv = OpenCVFisheye::distortPoint(_x, _y, _w, k);
+    u = uv.first * f[0] + c[0];
+    v = uv.second * f[1] + c[1];
+    return true;
+}
+
 void processRows(const FrameTransform& t, const ImageBuffer& src, ImageBuffer& dst,
                  const std::array<std::uint8_t, 3>& bg, int y_begin, int y_end) {
     const int matrix_count = static_cast<int>(t.matrices.size());
     const int ch = dst.channels;
+    // Rolling-shutter matrices are indexed by SOURCE row (their count == the input readout
+    // axis length), not by the output row. When output != input the two differ, so we first
+    // map the output pixel to a source coordinate with the middle matrix, then pick the
+    // matrix for that source row. Mirrors the `sy` computation in stabilize.rs::undistort.
+    const double rs_axis =
+        static_cast<double>(t.horizontal_readout ? t.width : t.height);
 
     for (int y = y_begin; y < y_end; ++y) {
         std::uint8_t* out_row = dst.data + static_cast<std::size_t>(y) * dst.stride;
         for (int x = 0; x < dst.width; ++x) {
             std::uint8_t* out_pixel = out_row + x * ch;
 
-            int idx = t.horizontal_readout ? x : y;
-            if (idx >= matrix_count) idx = matrix_count - 1;
+            // Initial source-row guess straight from the output coordinate, refined via the
+            // middle matrix (the source point's readout-axis coordinate is the true index).
+            double sy = std::clamp(static_cast<double>(t.horizontal_readout ? x : y), 0.0,
+                                   rs_axis);
+            if (matrix_count > 1) {
+                double u, v;
+                if (rotateAndDistort(x, y, t.matrices[matrix_count / 2], t.k, t.f, t.c, u,
+                                     v)) {
+                    sy = std::clamp(std::round(t.horizontal_readout ? u : v), 0.0, rs_axis);
+                }
+            }
+            int idx = static_cast<int>(std::min(sy, static_cast<double>(matrix_count - 1)));
             if (idx < 0) idx = 0;
-            const std::array<double, 9>& m = t.matrices[idx];
 
-            const double _x = x * m[0] + y * m[1] + m[2];
-            const double _y = x * m[3] + y * m[4] + m[5];
-            const double _w = x * m[6] + y * m[7] + m[8];
-
+            double u, v;
             bool ok = false;
-            if (_w > 0.0) {
-                auto uv = OpenCVFisheye::distortPoint(_x, _y, _w, t.k);
-                const double u = uv.first * t.f[0] + t.c[0];
-                const double v = uv.second * t.f[1] + t.c[1];
+            if (rotateAndDistort(x, y, t.matrices[idx], t.k, t.f, t.c, u, v)) {
                 ok = sampleBilinear(src, u, v, out_pixel);
             }
             if (!ok) {

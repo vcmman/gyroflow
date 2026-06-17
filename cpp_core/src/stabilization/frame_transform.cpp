@@ -15,8 +15,16 @@ FrameTransform computeFrameTransform(double frame_center_ts_ms,
     FrameTransform t;
     t.width = width;
     t.height = height;
-    t.output_width = lens.output_width > 0 ? lens.output_width : width;
-    t.output_height = lens.output_height > 0 ? lens.output_height : height;
+    // Output framing: explicit params override the lens output_dimension, which in turn
+    // overrides the input dims.
+    const int ow = params.output_width > 0
+                       ? params.output_width
+                       : (lens.output_width > 0 ? lens.output_width : width);
+    const int oh = params.output_height > 0
+                       ? params.output_height
+                       : (lens.output_height > 0 ? lens.output_height : height);
+    t.output_width = ow;
+    t.output_height = oh;
 
     const double fx = lens.camera_matrix.fx;
     const double fy = lens.camera_matrix.fy;
@@ -24,20 +32,24 @@ FrameTransform computeFrameTransform(double frame_center_ts_ms,
     const double cy = lens.camera_matrix.cy;
 
     // Source intrinsics (scaled_k in Gyroflow): f and c used to map the distorted point
-    // back to source pixels.
+    // back to source pixels. These stay in INPUT dimensions even when output != input.
     t.f = {fx, fy};
     t.c = {cx, cy};
     for (std::size_t i = 0; i < 4 && i < lens.distortion_coeffs.size(); ++i) {
         t.k[i] = lens.distortion_coeffs[i];
     }
 
-    // Output (virtual) camera matrix new_K (get_new_k with no horizontal stretch).
-    const double fov = params.fov != 0.0 ? params.fov : 1.0;
+    // Output (virtual) camera matrix new_K (get_new_k with no horizontal stretch). The
+    // principal point is the OUTPUT centre; get_fov additionally scales fov by
+    // width/output_width so the inscribed crop (computed in input-width units) maps onto the
+    // output buffer. See frame_transform.rs get_new_k / get_fov.
+    const double fov_base = params.fov != 0.0 ? params.fov : 1.0;
+    const double fov = fov_base * static_cast<double>(width) / std::max(1, ow);
     Mat3 newK = Mat3::identity();
     newK.at(0, 0) = fx / fov;
     newK.at(1, 1) = fy / fov;
-    newK.at(0, 2) = t.output_width / 2.0;
-    newK.at(1, 2) = t.output_height / 2.0;
+    newK.at(0, 2) = ow / 2.0;
+    newK.at(1, 2) = oh / 2.0;
     newK.at(2, 2) = 1.0;
 
     const bool horizontal = isHorizontal(params.frame_readout_direction);

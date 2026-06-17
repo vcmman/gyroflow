@@ -173,9 +173,19 @@ std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timesta
     newK.at(0, 2) = width / 2.0;
     newK.at(1, 2) = height / 2.0;
 
-    const double out_w = width;
-    const double out_h = height;
-    const double inv_aspect = out_h / out_w;
+    // Inscribed-rectangle aspect uses the OUTPUT dimensions; everything else (border ring,
+    // new_K centre, search centre, fov denominator) stays in INPUT dims. Gyroflow computes
+    // the FOV with output_width/height temporarily set to the input size (zooming/mod.rs:48)
+    // so output_dim.0 collapses to the input width, while output_inv_aspect keeps the real
+    // output aspect ratio (fov_iterative.rs: output_inv_aspect = output_dim.1/output_dim.0).
+    const int ow = tp.output_width > 0
+                       ? tp.output_width
+                       : (lens.output_width > 0 ? lens.output_width : width);
+    const int oh = tp.output_height > 0
+                       ? tp.output_height
+                       : (lens.output_height > 0 ? lens.output_height : height);
+    const double out_w = width;  // output_dim.0 == input width (the ratio cancels)
+    const double inv_aspect = static_cast<double>(oh) / static_cast<double>(ow);
     const double cx = width / 2.0;
     const double cy = height / 2.0;
 

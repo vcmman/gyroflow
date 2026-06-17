@@ -36,6 +36,15 @@ struct TransformParams {
 
     double frame_readout_time_ms = 0.0;  // 0 disables rolling-shutter correction
     ReadoutDirection frame_readout_direction = ReadoutDirection::TopToBottom;
+
+    // Rendered output dimensions. 0 => fall back to the lens output_dimension, else the
+    // input dimensions. When these differ from the input (e.g. Gyroflow's 16:9 crop of a
+    // 4:3 sensor) new_K's principal point and the rendered buffer use these dims, while the
+    // source intrinsics (f, c) and the per-row matrix count stay in input dimensions —
+    // mirroring src/core/stabilization/frame_transform.rs (get_new_k uses out_dim/2 for the
+    // centre and get_fov scales fov by width/output_width).
+    int output_width = 0;
+    int output_height = 0;
 };
 
 // Build the transform for the frame whose center timestamp is frame_center_ts_ms.

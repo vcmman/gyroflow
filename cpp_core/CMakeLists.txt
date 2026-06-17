@@ -33,6 +33,11 @@ target_link_libraries(gyroflow_cpp_core PUBLIC Threads::Threads)
 add_executable(gyroflow_cpp_probe tools/gyroflow_cpp_probe.cpp)
 target_link_libraries(gyroflow_cpp_probe PRIVATE gyroflow_cpp_core)
 
+# Validation dumper (smoothed quats + adaptive FOVs) for diffing against Rust Gyroflow's
+# exported metadata. OpenCV-free — links the core library only.
+add_executable(gyroflow_cpp_validate tools/gyroflow_cpp_validate.cpp)
+target_link_libraries(gyroflow_cpp_validate PRIVATE gyroflow_cpp_core)
+
 # Headless DJI stabilizer CLI (OpenCV video I/O). Built only when OpenCV is available.
 find_package(OpenCV QUIET COMPONENTS core imgproc videoio)
 if(OpenCV_FOUND)
