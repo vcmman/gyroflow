@@ -147,6 +147,70 @@ AAC audio, ~745 MB.
   remove the same camera shake (89.0% vs 88.9%).
 - **Black border**: worst-frame ≈0.16% (16:9 crop) with adaptive zoom.
 
+## Coordinate conventions (image / orientation / gyro frames)
+
+Three frames matter and they differ by axis swaps + sign flips:
+
+1. **Image (OpenCV) frame** — `X = right (width)`, `Y = down (height)`, `Z = forward (optical
+   axis)`. Output/source pixels are `(x, y)` with `x` along width, `y` along height; intrinsics
+   `fx,cx` act on width, `fy,cy` on height.
+2. **Orientation / quaternion frame** (`org_quat`, smoothed) — relates to the image frame by
+   `S = diag(1, −1, −1)`, i.e. the four sign-flips on `R(quat)` in `frame_transform.cpp`
+   (`frame_transform.rs:257`). So the orientation frame is `X = right, Y = up, Z = back`
+   relative to the image.
+3. **Raw gyro / IMU frame** — depends on how the IMU is mounted; selected in the Gyroflow UI
+   by the **"IMU orientation"** string (`XYZ`, `yxz`, …; `XYZ` = identity, lowercase = negate).
+
+### Gyroflow's expected IMU *input* frame
+
+This is the frame that `imu_orientation` normalises the raw sensor into (`XYZ` = identity =
+already correct). Relative to the OpenCV image frame it is:
+
+> **X = up, Y = left, Z = back** (right-handed; `X×Y = up×left = back = Z`).
+
+i.e. holding the camera normally (lens forward), Gyroflow's IMU **+X points up, +Y points
+left, +Z points back** (toward the operator, opposite the lens). `imu_orientation` is the
+per-camera string that rotates each device's raw axes into this frame.
+
+### Gyro mounted in the OpenCV image frame ⇒ IMU orientation = `yxz`
+
+Not `Xyz` and not `XYZ`. The raw gyro passes through **two** remaps before it becomes the
+orientation quaternion:
+
+- `imu_orientation` `orient()` — user knob — `src/core/gyro_source/imu_transforms.rs:73`
+- a **fixed** swap inside every integrator, `omega = (-g[1], g[0], g[2])` — complementary /
+  VQF / simple / v2, all identical — `src/core/imu_integration/mod.rs:82,127,163,198,246,290`
+
+For correct stabilization the result must equal the physical gyro expressed in the
+orientation frame, which by (2) is `S · w_image`. Only `yxz` satisfies
+`swap(orient(io, w)) == diag(1,−1,−1) · w`; equivalently, `yxz` is the change-of-basis from
+the image frame into the expected input frame above. (Earlier `Xyz` guesses ignored the
+integrator's hardcoded X↔Y swap, which is *not* derivable from the render flips alone.)
+
+Verified end-to-end against cpp_core's quaternion/matrix code + the real flip pattern in
+`tests/test_imu_orientation.cpp`.
+
+### Why the fixed swap exists (design)
+
+The integrator (`src/core/imu_integration/`) is a standard AHRS/complementary fusion that
+runs in its **own** world frame — **gravity along +Z** (see `complementary.rs`
+`get_acc_correction`, which aligns measured gravity to `g.z = +1`), with a fixed initial
+attitude `from_euler_angles(π/2,0,0)`. That world frame is *not* the renderer's frame (where
+`org_quat` is consumed with the `diag(1,−1,−1)` flip and `Z` is the optical axis), so a
+**constant** conversion is needed. The design splits the two adapters deliberately:
+
+- **per-camera, data-driven** → `imu_orientation` (from telemetry metadata / lens profiles /
+  user): normalises each device's raw axes into the expected input frame above.
+- **engine-fixed** → the `(-g[1], g[0], g[2])` swap + initial attitude: bridges the fusion's
+  Z-up world to the renderer's frame. Constant, so it's hardcoded.
+
+This keeps the AHRS math a clean standard implementation independent of the rendering
+coordinate choice, and puts all device-specific quirks in data rather than code. Fused-
+attitude sources (DJI, etc.) **skip the integrator**, so this fixed swap is specific to the
+gyro-integration path — the C++ port consumes already-fused quaternions via the bridge and
+does not apply `imu_orientation` itself, but the convention matters when feeding raw gyro
+into Gyroflow to produce the bridge.
+
 ## Not applied (this path)
 
 IMU integration (DJI gives fused attitude), horizon lock, IBIS/OIS, digital lens / mesh
