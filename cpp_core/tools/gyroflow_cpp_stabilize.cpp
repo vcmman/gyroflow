@@ -60,7 +60,8 @@ FILE* openFfmpegPipe(const std::string& bin, const std::string& output,
 void usage(const char* prog) {
     std::cerr << "Usage: " << prog
               << " <input.mp4> --telemetry <file.json> -o <output.mp4>\n"
-              << "  Stabilization: [--max-zoom 130] [--no-adaptive-zoom] [--fov 1.0]\n"
+              << "  Stabilization: [--max-zoom 130] [--zoom-method envelope|gaussian]"
+              << " [--no-adaptive-zoom] [--fov 1.0]\n"
               << "  Framing:       [--keep-sensor] [--output-size WxH]"
               << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
@@ -77,6 +78,7 @@ int main(int argc, char** argv) {
     double fov = 1.0;
     bool adaptive_zoom = true;
     double max_zoom = 130.0;
+    std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
     long max_frames = 0;
     int threads = 0;
 
@@ -108,6 +110,7 @@ int main(int argc, char** argv) {
         else if (a == "-o" || a == "--output") output = next("-o");
         else if (a == "--no-adaptive-zoom") adaptive_zoom = false;
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
+        else if (a == "--zoom-method") zoom_method = next("--zoom-method");
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -232,8 +235,13 @@ int main(int argc, char** argv) {
         for (long j = 0; j < total; ++j) ts_all[j] = static_cast<double>(j) * 1000.0 / fps;
         AdaptiveZoomParams az;
         az.max_zoom_percent = max_zoom;
+        az.method = (zoom_method == "gaussian" || zoom_method == "0")
+                        ? ZoomMethod::GaussianFilter
+                        : ZoomMethod::EnvelopeFollower;
         std::cout << "Computing adaptive zoom (window " << az.window_s << " s, max zoom "
-                  << max_zoom << "%)...\n";
+                  << max_zoom << "%, method "
+                  << (az.method == ZoomMethod::GaussianFilter ? "gaussian" : "envelope")
+                  << ")...\n";
         fovs = computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height,
                                    fps, tp, az);
         double mn = 1e9, mx = -1e9;

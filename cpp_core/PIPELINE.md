@@ -75,15 +75,20 @@ temporal smoothing + clamp:
   only the inscribed-rectangle aspect uses the **output** dims (mirrors Gyroflow temporarily
   setting output=input during the FOV calc, `zooming/mod.rs:48`).
 - Per-frame timestamp = `frame·1000/fps`.
-- Temporal smoothing = **EnvelopeFollower** (method 1, DJI default), two passes:
-  `α₁ = 1 − exp(−(1/fps)/window)`, `α₂ = 1 − exp(−(1/fps)/0.2)`.
+- Temporal smoothing — both Gyroflow methods are implemented (`--zoom-method`, the
+  non-keyframed/static-window branch of `zoom_dynamic::compute`):
+  - **EnvelopeFollower** (method 1, default), two passes:
+    `α₁ = 1 − exp(−(1/fps)/window)`, `α₂ = 1 − exp(−(1/fps)/0.2)`.
+  - **GaussianFilter** (method 0): edge-pad → rolling-min over `frames=odd(⌊window·fps⌋)`
+    → edge-pad → normalized Gaussian convolution (`std = frames/6`).
+  Both match golden `fov_scale` to ≤0.0012% / ≤0.0011% rel respectively (see COMPARISON.md).
 - `max_zoom` clamps FOV to `≥ 100/max_zoom_percent`.
 
 | Param | Value |
 |-------|-------|
 | adaptive zoom | ON (default) |
 | window_s | 4.0 s |
-| method | 1 (EnvelopeFollower) |
+| method | 1 (EnvelopeFollower); 0 (GaussianFilter) also supported via `--zoom-method` |
 | max_zoom_percent | 130 (FOV ≥ 0.769) |
 | fov_algorithm_margin | 2.0 px |
 | center_offset | (0, 0) |

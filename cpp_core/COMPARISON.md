@@ -38,6 +38,14 @@ frames:
 → The smoothing and adaptive-zoom ports (incl. the 16:9 framing) match Gyroflow's golden
 output essentially exactly. **RESULT: PASS.**
 
+Both dynamic-zoom methods are validated the same way (export golden with the matching
+`adaptive_zoom_method`, then `gyroflow_cpp_validate --zoom-method ...`):
+
+| `adaptive_zoom_method` | adaptive fov vs `fov_scale` (relative) |
+|------------------------|----------------------------------------|
+| 1 — EnvelopeFollower (default) | max **0.0012%**, mean 0.0004% |
+| 0 — GaussianFilter             | max **0.0011%**, mean 0.0004% |
+
 ## 2. Frame PSNR (rendered pixels, both bilinear, identical source)
 
 49 frames sampled (every 20th of 973), C++ output vs Gyroflow output:
@@ -114,6 +122,11 @@ as a steadiness reference) for context:
 by a sub-pixel margin (shift 1.484 vs 1.541 px, ~3.8%; ITF within 0.02 dB), consistent with
 the ~0.11 px residual characterised in §2/§3. Both cut L's global camera shake ~58–60%
 (3.670 → ~1.5 px) and end up steadier than the raw R reference on true camera motion.
+
+**Dynamic-zoom methods on this clip.** Both `adaptive_zoom_method`s were also validated
+against golden `fov_scale` over the full 11 934 frames of this clip (export golden with the
+matching method, then `gyroflow_cpp_validate --zoom-method ...`): EnvelopeFollower max
+**0.0047%** / mean 0.0004% rel; GaussianFilter max **0.0047%** / mean 0.0005% rel — both PASS.
 
 > Notes: L vs R are different flights, so cross-clip optical-flow (which also reflects scene
 > motion) is not a clean camera-only comparison; phase-corr shift is the most reliable metric

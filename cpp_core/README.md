@@ -85,7 +85,8 @@ Implemented:
 - **CPU undistort kernel** (`stabilization/undistort.*`) — `rotate_and_distort` + bilinear
   remap over packed 8-bit buffers, threaded over rows. Core stays OpenCV-free.
 - **Adaptive zoom** (`zooming/adaptive_zoom.*`) — forward `undistortPoints`, per-frame
-  inscribed-rectangle FOV search, EnvelopeFollower temporal smoothing (DJI default), and
+  inscribed-rectangle FOV search, both temporal-smoothing methods (EnvelopeFollower default +
+  GaussianFilter, via `--zoom-method`; both validated against golden `fov_scale`), and
   `max_zoom` clamp.
 - **Telemetry bridge** (`telemetry_io.*`, `../tools/export_bridge_json.py`) — Phase 1 reads
   a JSON sidecar exported from the Rust Gyroflow CLI instead of parsing DJI protobuf in C++.

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <optional>
 
 #include "gyroflow/distortion/opencv_fisheye.hpp"
@@ -125,6 +126,85 @@ std::vector<Pt> undistortPoints(const std::vector<Pt>& src, const Mat3& newK,
     return out;
 }
 
+// --- GaussianFilter path (zoom_dynamic.rs static-window helpers, method == 0) ---
+
+// zoom_dynamic::get_frames_per_window: floor(window * fps), forced odd.
+std::size_t framesPerWindow(double window_s, double fps) {
+    long frames = static_cast<long>(std::floor(window_s * fps));
+    if (frames < 1) frames = 1;
+    if (frames % 2 == 0) frames += 1;
+    return static_cast<std::size_t>(frames);
+}
+
+// zoom_dynamic::min_rolling: rolling minimum over `window` (valid positions only).
+std::vector<double> minRolling(const std::vector<double>& a, std::size_t window) {
+    std::vector<double> out;
+    if (window == 0 || a.size() < window) return out;
+    out.reserve(a.size() - window + 1);
+    for (std::size_t i = 0; i + window <= a.size(); ++i) {
+        double m = a[i];
+        for (std::size_t j = 1; j < window; ++j) m = std::min(m, a[i + j]);
+        out.push_back(m);
+    }
+    return out;
+}
+
+// zoom_dynamic::convolve: valid (no-pad) cross-correlation; filter is symmetric so it
+// equals convolution.
+std::vector<double> convolveValid(const std::vector<double>& v, const std::vector<double>& filter) {
+    std::vector<double> out;
+    if (filter.empty() || v.size() < filter.size()) return out;
+    out.reserve(v.size() - filter.size() + 1);
+    for (std::size_t i = 0; i + filter.size() <= v.size(); ++i) {
+        double s = 0.0;
+        for (std::size_t j = 0; j < filter.size(); ++j) s += v[i + j] * filter[j];
+        out.push_back(s);
+    }
+    return out;
+}
+
+// zoom_dynamic::gaussian_window_normalized: m taps over [-m/2, m/2] (integer division),
+// normalized to sum 1.
+std::vector<double> gaussianWindowNormalized(std::size_t m, double std_dev) {
+    const long half = static_cast<long>(m) / 2;
+    const double sig2 = 2.0 * std_dev * std_dev;
+    std::vector<double> w;
+    w.reserve(static_cast<std::size_t>(2 * half + 1));
+    for (long x = -half; x <= half; ++x) {
+        w.push_back(std::exp(-static_cast<double>(x * x) / sig2));
+    }
+    double sum = 0.0;
+    for (double v : w) sum += v;
+    if (sum != 0.0) for (double& v : w) v /= sum;
+    return w;
+}
+
+// zoom_dynamic::pad_edge: extend with the first/last value on each side.
+std::vector<double> padEdge(const std::vector<double>& arr, std::size_t left, std::size_t right) {
+    const double first = arr.empty() ? 0.0 : arr.front();
+    const double last = arr.empty() ? 0.0 : arr.back();
+    std::vector<double> out(arr.size() + left + right);
+    for (std::size_t i = 0; i < left; ++i) out[i] = first;
+    std::copy(arr.begin(), arr.end(), out.begin() + static_cast<std::ptrdiff_t>(left));
+    for (std::size_t i = left + arr.size(); i < out.size(); ++i) out[i] = last;
+    return out;
+}
+
+// GaussianFilter static-window smoothing: pad, rolling-min over the window, pad, Gaussian
+// convolve. Output length == input length (window odd => 2*(window/2)+1 == window).
+std::vector<double> gaussianFilterSmooth(const std::vector<double>& fov_values,
+                                         double window_s, double fps) {
+    if (fov_values.empty()) return fov_values;
+    const std::size_t frames = framesPerWindow(window_s, fps);
+    const std::size_t half = frames / 2;
+    const std::vector<double> pad = padEdge(fov_values, half, half);
+    const std::vector<double> fov_min = minRolling(pad, frames);
+    const std::vector<double> min_pad = padEdge(fov_min, half, half);
+    const std::vector<double> gaussian =
+        gaussianWindowNormalized(frames, static_cast<double>(frames) / 6.0);
+    return convolveValid(min_pad, gaussian);
+}
+
 // EnvelopeFollower with a constant alpha (zoom_dynamic::envelope_follower).
 // Tracks the minimum so the crop never exceeds what avoids borders.
 std::vector<double> envelopeFollower(const std::vector<double>& a, double coeff) {
@@ -223,11 +303,17 @@ std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timesta
         fov_values[fi] = nearest.bw * 2.0 / out_w;
     }
 
-    // Temporal smoothing: EnvelopeFollower, two passes (method == 1).
-    const double first_alpha = 1.0 - std::exp(-(1.0 / fps) / az.window_s);
-    const double second_alpha = 1.0 - std::exp(-(1.0 / fps) / 0.2);
-    fov_values = envelopeFollower(fov_values, first_alpha);
-    fov_values = envelopeFollower(fov_values, second_alpha);
+    // Temporal smoothing (zoom_dynamic::compute, non-keyframed static window).
+    if (az.method == ZoomMethod::GaussianFilter) {
+        // method == 0: rolling-min over the window, then Gaussian convolution.
+        fov_values = gaussianFilterSmooth(fov_values, az.window_s, fps);
+    } else {
+        // method == 1: two-pass min-tracking envelope follower (Gyroflow default).
+        const double first_alpha = 1.0 - std::exp(-(1.0 / fps) / az.window_s);
+        const double second_alpha = 1.0 - std::exp(-(1.0 / fps) / 0.2);
+        fov_values = envelopeFollower(fov_values, first_alpha);
+        fov_values = envelopeFollower(fov_values, second_alpha);
+    }
 
     // max_zoom clamp: zoom = 1/fov must not exceed max_zoom_percent/100.
     if (az.max_zoom_percent > 50.0) {

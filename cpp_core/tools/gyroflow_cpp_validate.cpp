@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
     double max_zoom = 130.0;
     bool keep_sensor = false;
     int out_w_override = 0, out_h_override = 0;
+    std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -44,6 +45,7 @@ int main(int argc, char** argv) {
         };
         if (a == "--frames") frames = std::stol(next("--frames"));
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
+        else if (a == "--zoom-method") zoom_method = next("--zoom-method");
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -109,6 +111,9 @@ int main(int argc, char** argv) {
     for (long j = 0; j < frames; ++j) ts_all[j] = static_cast<double>(j) * 1000.0 / fps;
     AdaptiveZoomParams az;
     az.max_zoom_percent = max_zoom;
+    az.method = (zoom_method == "gaussian" || zoom_method == "0")
+                    ? ZoomMethod::GaussianFilter
+                    : ZoomMethod::EnvelopeFollower;
     const std::vector<double> fovs =
         computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az);
 
