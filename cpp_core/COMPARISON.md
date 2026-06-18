@@ -87,6 +87,40 @@ camera shake (88.9% vs 89.0%), and rendered frames agree to ~33 dB with only a ~
 sub-pixel residual (quaternion-sampling FP + resampling + encode noise), no systematic
 framing error.
 
+## Field validation — second clip (dji6_L 0005, full-length run)
+
+Independent of the sample clip above, the port was run end-to-end on a fresh DJI clip and
+evaluated for stabilization quality. **Clip:** `dji6_L/DJI_20260617031058_0005_D.MP4`
+(DJI Osmo Action 6, 3840×2880 10-bit, 29.97 fps, **11 934 frames / ~6.6 min**, readout
+12.98 ms, opencv_fisheye). Telemetry bridged via `tools/export_bridge_json.py` (397 666
+quaternions). Two full-length results were rendered (H.265 CRF 18, adaptive zoom, audio
+copied):
+
+- 16:9 lens `output_dimension` crop → 3840×2160 (`*_cpp_stab_full.mp4`)
+- `--keep-sensor` full 4:3 sensor → 3840×2880 (`*_cpp_stab_full_4x3.mp4`)
+
+**Stability** (`tools/stabilization_quality.py`, first 1800 frames / ~60 s of each), with the
+pre-existing Gyroflow render of the same clip and a separate raw clip (`dji6_R 0004`, used
+as a steadiness reference) for context:
+
+| Clip (first 1800 frames)     | ITF (dB) ↑ | phase-corr shift (px) ↓ | optical-flow (px) ↓ |
+|------------------------------|-----------:|------------------------:|--------------------:|
+| L — raw                      |      21.18 |                   3.670 |               3.543 |
+| L — **cpp_core** stabilized  |      23.05 |                   1.541 |               3.073 |
+| L — **Gyroflow** stabilized  |      23.07 |                   1.484 |               3.006 |
+| R — reference (raw, as-is)   |      23.12 |                   1.747 |               2.939 |
+
+→ On the same L footage, **cpp_core and Gyroflow are essentially tied** — Gyroflow steadier
+by a sub-pixel margin (shift 1.484 vs 1.541 px, ~3.8%; ITF within 0.02 dB), consistent with
+the ~0.11 px residual characterised in §2/§3. Both cut L's global camera shake ~58–60%
+(3.670 → ~1.5 px) and end up steadier than the raw R reference on true camera motion.
+
+> Notes: L vs R are different flights, so cross-clip optical-flow (which also reflects scene
+> motion) is not a clean camera-only comparison; phase-corr shift is the most reliable metric
+> here. This run used cpp_core's 8-bit OpenCV decode vs Gyroflow's native 10-bit — a
+> pixel-fidelity difference, not a geometric one. Outputs + a `stabilization_comparison.md`
+> report were saved next to the source clip (external media, not in-repo).
+
 ## How to run Gyroflow and reproduce this comparison
 
 Prereqs: a `gyroflow` binary on `PATH` (see the README Quick Start), the built C++ stabilizer
