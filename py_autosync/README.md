@@ -45,6 +45,8 @@ Both `dji_quaternions_full.csv` and `dji_camera_data.csv` are auto-detected.
 | `gyroflow_autosync.py` | CLI: `selftest` / `compare` / `omega` |
 | `test_autosync_time.py` | Unit tests (lowpass, ω, recovery, noise robustness) |
 | `variance_experiment.py` | Monte-Carlo precision study: bias / variance / range vs noise, repeatability, gyro-bias robustness |
+| `segment_experiment.py` | Inject one fixed offset, estimate per segment, plot recovered offset vs segment (nearest vs interp) → `segment_offsets.png/.csv` |
+| `segment_stats.py` | Sweep segment count over many noise realizations → bias / repeatability / 1/√N variance averaging → `segment_stats.png/.csv` |
 
 ## Tests
 
@@ -137,6 +139,22 @@ motion-conditioning). Diagnose by **pattern**: a monotonic trend vs segment time
 camera/IMU **clock drift** (offset is time-varying; needs offset+skew correction, not a single
 constant); random scatter correlated with low-motion / shallow-cost segments ⇒ poorly conditioned
 segments; otherwise the residual is the lookup quantization (use `interp=True`).
+
+`segment_experiment.py` and `segment_stats.py` demonstrate this directly: inject **one fixed
+offset** over the whole clip, then estimate per segment. Findings (DJI clip, 30 fps, σ=1 °/s):
+
+- Per-segment estimates still scatter ~1 ms even though the truth is constant — the scatter is
+  per-segment conditioning + lookup quantization, **not** a time-varying offset. Shorter segments
+  scatter more (per-seg std 0.16 ms @16 s → 0.57 ms @1 s).
+- **The mean over segments is much more accurate than any single segment**, but for two different
+  reasons that must be separated:
+  - *Random* scatter averages out: the std of the clip-mean estimate is ~0.02–0.04 ms and shrinks
+    roughly as 1/√N — averaging segments buys precision.
+  - *Systematic* `nearest` bias does **not** average out: the clip-mean stays at **+0.3…0.4 ms**
+    for any segment count (it is deterministic rounding, same sign every segment). Only
+    `interp=True` removes it (clip-mean bias → ±0.05 ms).
+- Net: **`interp` (kills the bias) + averaging multiple well-excited segments (kills the variance)**
+  is what gets you to ~0.02 ms; averaging alone leaves the `nearest` quantization bias intact.
 
 See `../cpp_core/AUTOSYNC_TIME_REPORT.md` §8 for higher-precision calibration approaches
 (parabolic peak interpolation, GCC-PHAT, continuous-time/Kalibr, offset+skew drift models).
