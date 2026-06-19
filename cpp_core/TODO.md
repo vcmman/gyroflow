@@ -1,134 +1,118 @@
-# cpp_core — Next steps (resume here)
+# cpp_core — status & next steps (resume here)
 
-Status as of last session: Phase 1 (headless DJI stabilizer) and Phase 2 (adaptive zoom +
-**Gyroflow output_dimension framing**) work end-to-end on `data/DJI_..._0032_D.MP4`; output
-is encoded via ffmpeg (H.264/H.265 + audio). 5/5 unit tests pass. **Validated against golden
-Gyroflow metadata**: smoothing ≤0.0147°, adaptive fov ≤0.0012% over 973 frames; frame PSNR
-~33.5 dB (residual ~0.11 px, sub-pixel — quaternion-sampling FP + resampling, not mainly
-interpolation). **Stabilization quality**: global camera shake −89% (Gyroflow −88.9%, i.e.
-equal), ITF +1.58 dB. Full head-to-head in `COMPARISON.md`; see also `README.md` /
-`DEVELOPMENT_PLAN.md`.
+Headless C++ port of Gyroflow's stabilization core. Self-contained CMake project; math
+validated against Rust Gyroflow's golden metadata. Last updated 2026-06-19.
 
-Pick up from the top. Each item lists the concrete files to touch.
+## Current status (one line)
 
----
-
-## 1. ✅ DONE — match Gyroflow framing (input vs output dimensions)
-
-The C++ now renders Gyroflow's lens `output_dimension` by default (this clip: **3840×2160,
-16:9** from the 3840×2880 4:3 sensor); `--keep-sensor` and `--output-size WxH` switch modes.
-Black-border fraction on the 16:9 crop stays ≈0.16% worst (clip-boundary frame), i.e. the
-crop is self-consistent — no large bottom border. What was done:
-
-- `stabilization/frame_transform.cpp` — `TransformParams` gained `output_width/height`;
-  `new_K` principal point = `output_w/2, output_h/2`, `fov` scaled by `width/output_width`
-  (`get_fov`); source `c` stays at input `cx,cy`; per-row matrix count stays in input dims.
-- `stabilization/undistort.cpp` — kernel iterates **output** pixels and now picks the
-  rolling-shutter matrix by the **source** row (two-pass: map output→source with the middle
-  matrix, then index), mirroring `stabilize.rs::undistort`'s `sy`. Needed because the matrix
-  count = input readout-axis length, not output.
-- `zooming/adaptive_zoom.cpp` — inscribed-rect aspect now uses **output** dims
-  (`output_inv_aspect`); border ring, `new_K` centre, search centre and fov denominator stay
-  in **input** dims (Gyroflow sets output=input during the fov calc, so `output_dim.0`
-  collapses to the input width — see `zooming/mod.rs:48`).
-- CLI: `--keep-sensor`, `--output-size WxH`; output buffer + encoder sized to output dims.
-- `tests/test_transform.cpp` — round-trip test for output≠input: matrix count stays in input
-  dims, source intrinsics unchanged, and the fov-scaling identity
-  `out_fov = centre + (out_fov1 − centre)/fov` holds with output centre ≠ input centre.
-
-## 2. ✅ MOSTLY DONE — PSNR / golden comparison vs Rust Gyroflow
-
-**Math cross-check (encoder-independent) — DONE, matches golden to ~0.015°/0.001%.**
-`tools/gyroflow_cpp_validate` dumps smoothed quats + adaptive fovs; diff against Gyroflow's
-`--export-metadata 3:...` with `tools/compare_gyroflow_metadata.py`. Over all 973 frames:
-- org_quat sampling: max 0.014°, mean 0.0037° (sanity — raw quaternion interpolation)
-- smoothed orientation vs `stab_quat`: max **0.0147°**, mean 0.0037° (smoothing port)
-- adaptive fov vs `fov_scale`: max **0.0012%** rel, mean 0.0004% (zoom + 16:9 framing)
-Conventions nailed: render samples at `frame*1000/fps`; the metadata export samples at
-`frame*1000/fps + readout/2` (gyro_export middle_ts); fovs at `frame*1000/fps`. Gyroflow's
-exported `stab_quat = org * smoothed^-1`, so the C++ `smoothed` series compares directly.
-
-**Frame PSNR — DONE (with caveats).** Gyroflow's default render is blocked in this env (no
-working GPU encoder; the 10-bit `YUV420P10LE` software path is rejected). Workaround:
-transcode the source to 8-bit (`ffmpeg -crf 12 -pix_fmt yuv420p`) and point a copy of the
-`.gyroflow` project at it (keep `gyro_source.filepath` = original for telemetry), then both
-tools read identical 8-bit frames. Result (16:9, **both bilinear**, RS on): PSNR ~33.5 dB
-mean, no global shift (0.005 px), matched brightness, no DC/colorspace offset. Dual-encoder
-noise floor is ~38 dB, so the real geometry residual is mae ≈ 3.3 ≈ **~0.11 px** local
-misalignment. Matching interpolation gained only ~0.6 dB vs Gyroflow's default Lanczos4, so
-the residual is **not** mainly interpolation — it's quaternion-sampling FP/µs-rounding
-(~0.09 px) + minor resampling differences. No systematic framing bug. Both outputs also
-stabilize equally (camera-shake removal 89.0% vs Gyroflow 88.9%). Full head-to-head:
-`COMPARISON.md`.
-
-- [ ] (optional) The ~0.11 px residual is near the floor for two codebases + two encoders;
-      not worth chasing. STMap diff is NOT useful here — Gyroflow's `--export-stmap` sets
-      `suppress_rotation=true` (lens-only map).
-
-## 3. Phase 4 — native libav decode (input)  ← do this next
-
-Parity with Gyroflow is essentially achieved on the algorithm side (see items 1–2), so the
-highest-value remaining work is removing the real quality limitation: input is still decoded
-8-bit via OpenCV, truncating the clip's 10-bit/HDR.
-
-
-Output already pipes to ffmpeg; **input is still OpenCV `VideoCapture` (8-bit BGR only)**, so
-10-bit/HDR DJI footage is truncated.
-
-- [ ] Replace `cv::VideoCapture` with libav decode (or pipe `ffmpeg -f rawvideo` out), keep
-      bit depth, feed the kernel higher-precision pixels. See `src/rendering/ffmpeg_video.rs`
-      for the decode→process→encode ordering (PreConversion/PostConversion).
-
-## 4. Phase 3 — native DJI telemetry parser (drop the bridge)
-
-- [ ] Port `djmd`/DVTM protobuf parsing + readout-time extraction + lens-profile DB
-      (CBOR+gzip) loading/matching so `export_bridge_json.py` / the Gyroflow binary are no
-      longer needed. Refs: `src/core/gyro_source/mod.rs`, `lens_profile_database.rs`, and the
-      `telemetry-parser` crate.
-
-## 5. Phase 2 quality polish
-
-- [ ] Higher-order interpolation in `undistort.cpp` (bicubic / Lanczos4 — currently bilinear).
-      Mainly an output-quality feature (Gyroflow defaults to Lanczos4); the `COEFFS` tables in
-      `cpu_undistort.rs` port directly. Note: in the same-interpolation PSNR test this was only
-      a ~0.6 dB factor, so it is **not** the path to closing the C++↔Gyroflow gap (see item 2).
-      Add a `--interpolation bilinear|bicubic|lanczos4` CLI flag.
-- [ ] Horizon lock (`src/core/smoothing/horizon.rs`).
-- [ ] Color-range (full/limited) handling; per-axis smoothing; `lens_correction_amount < 1`.
-
-> Tooling now in place for regression-checking the above: `tools/compare_gyroflow_metadata.py`
-> (math vs golden) and `tools/stabilization_quality.py` (ITF + residual motion, before/after).
-> Re-run both after any kernel/smoothing change.
-
-## 6. Phase 5 — breadth
-
-- [ ] More distortion models (opencv_standard, poly3/5, etc.).
-- [ ] Raw-IMU integration (complementary / VQF) for non-fused sources.
-- [ ] Other cameras; optional GPU (OpenCL/wgpu) backend.
+Phase 1 (headless DJI stabilizer) + Phase 2 (dynamic zoom + `output_dimension` framing) are
+**complete and golden-validated**, including **both** adaptive-zoom methods. End-to-end on
+real DJI footage (Osmo Action 4 sample + Osmo Action 6 dji6 6.6-min clip); on par with
+Gyroflow to a sub-pixel margin. Input decode is still 8-bit (OpenCV) and telemetry is still
+bridged from the Rust binary — those are the two biggest remaining gaps.
 
 ---
 
-### Quick resume commands
+## ✅ Implemented
+
+- **Headless stabilizer** (`tools/gyroflow_cpp_stabilize.cpp`): bridge-JSON telemetry →
+  smoothing → per-frame/-row transform → CPU undistort → ffmpeg encode (H.264/H.265 + audio).
+  OpenCV used only for video I/O.
+- **Smoothing — Default algo** (`smoothing/default_algo.*`): velocity-adaptive slerp (time
+  constants `max_smoothness`↔`alpha_0_1s`, velocity-normalized), two-pass with the distance
+  term. Matches golden `stab_quat` ≤0.0166° (dji6 full 11 934 frames).
+- **Rolling-shutter correction** (`stabilization/frame_transform.*`): one 3×3 matrix per
+  readout-axis row, each sampling attitude at that row's exposure time; kernel indexes by
+  source row. Active whenever `frame_readout_time_ms > 0` (dji6: 12.98 ms, TopToBottom).
+- **Distortion** (`distortion/opencv_fisheye.*`): OpenCV fisheye distort/undistort.
+- **Dynamic zoom — BOTH Gyroflow methods** (`zooming/adaptive_zoom.*`): per-frame inscribed-
+  rectangle FOV (dense-scan port of `fov_iterative`) + temporal smoothing via
+  **EnvelopeFollower** (default) **and GaussianFilter**, selectable with `--zoom-method`;
+  `max_zoom` clamp. Both match golden `fov_scale` ≤0.0012% (sample) / ≤0.0047% (dji6 full).
+- **Framing**: renders lens `output_dimension` (16:9) by default; `--keep-sensor` (4:3 full
+  sensor) / `--output-size WxH`.
+- **Telemetry bridge** (`telemetry_io.*`, `tools/export_bridge_json.py`): consumes fused
+  attitude quaternions + lens profile + readout from the Rust Gyroflow CLI.
+- **Validation tooling**: `gyroflow_cpp_validate` (+ `--zoom-method`), `compare_gyroflow_
+  metadata.py` (math vs golden), `stabilization_quality.py` (ITF + residual motion).
+- **Tests**: ctest **6/6** (core, fisheye, telemetry_io, transform, adaptive_zoom [both
+  methods, constant + varying signal], imu_orientation).
+
+> Field result (dji6 0005, full 11 934-frame renders, 16:9 + 4:3): global camera shake
+> −62…63%, ITF +1.83 dB, on par with Gyroflow's own render (steadier only by ~0.05 px). See
+> `COMPARISON.md`. Coordinate conventions in `PIPELINE.md` ("Coordinate conventions").
+
+---
+
+## TODO (priority order)
+
+### 1. Native libav 10-bit decode (input)  ← highest-value
+Input is still `cv::VideoCapture` (8-bit BGR), truncating 10-bit/HDR DJI footage. Output
+already pipes to ffmpeg. Replace decode with libav / `ffmpeg -f rawvideo` and carry bit depth
+into the kernel (the undistort kernel would need a 16-bit sample path). Ref
+`src/rendering/ffmpeg_video.rs`. Pixel-fidelity only — does not affect the validated geometry.
+
+### 2. Horizon lock (`src/core/smoothing/horizon.rs`)
+Parity gap; also the cheapest win for the jolt case (locks roll so the frame doesn't tilt on
+a jolt). Needs the gravity reference — pure-quaternion horizon works without accel; full
+`use_gravity_vectors` needs accel (see item 4).
+
+### 3. Higher-order interpolation in `undistort.cpp`
+Currently bilinear; Gyroflow defaults to Lanczos4. The `COEFFS` tables in `cpu_undistort.rs`
+port directly. Add `--interpolation bilinear|bicubic|lanczos4`. Output-quality only (~0.6 dB
+in the same-interp PSNR test — not the path to closing the Gyroflow gap).
+
+### 4. Raw-IMU integration + accelerometer input (`src/core/imu_integration/`)
+cpp_core currently consumes **only fused quaternions** — no `complementary`/`complementary_v2`
+/`vqf`, and **accelerometer is not used at all**. Needed for sources that expose only raw
+gyro+accel (no fused attitude), and a prerequisite for accel-driven features (horizon gravity
+vectors, jolt detection). Requires carrying gyro+accel streams through the bridge/parser.
+Mind the hardcoded integrator swap `omega=(-g[1],g[0],g[2])` + `imu_orientation` (PIPELINE.md).
+
+### 5. Native DJI telemetry parse (drop the bridge)
+Port `djmd`/DVTM protobuf parsing + readout extraction + lens-profile DB (CBOR+gzip) so
+`export_bridge_json.py` / the Gyroflow binary are no longer needed. Refs
+`src/core/gyro_source/mod.rs`, `lens_profile_database.rs`, the `telemetry-parser` crate. (Also
+where DJI's native quaternion axis convention is normalized into the orientation frame.)
+
+### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑")
+Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
+distinguish an intentional fast pan from an unintentional jolt and passes the jolt through;
+adaptive zoom then "pumps" or hits `max_zoom` (black borders). Candidate upgrades:
+- **Jerk/transient detection + non-causal variable-window smoothing** (widen the window /
+  reduce follow around detected impacts) — most targeted, medium cost.
+- **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
+  constant/linear/parabolic path; absorbs transients without breathing.
+- **Crop-constrained joint smoothing↔zoom** instead of the two-stage smooth-then-zoom.
+- **Spike/outlier rejection** (Hampel/median) on the attitude before smoothing.
+- Add a **jerk-RMS / P95 residual-motion** metric to `stabilization_quality.py` (mean-based
+  ITF/flow average jolts away).
+
+### 7. Remaining parity (lower priority)
+- Per-axis smoothing; `lens_correction_amount < 1`; color-range (full/limited).
+- Other smoothing algos: `plain`, `fixed`, `none`, `focal_length` (only `default_algo` ported).
+- More distortion models (`opencv_standard`, poly3/5, …).
+- Optional GPU backend (OpenCL/wgpu).
+- Keyframed dynamic-zoom window (zooming-speed keyframes / video-speed) — intentionally not
+  ported; the headless bridge carries no keyframes.
+
+---
+
+## Quick resume commands
 ```sh
-cmake --build cpp_core/build -j && (cd cpp_core/build && ctest --output-on-failure)
-python3 tools/export_bridge_json.py --project data/DJI_20260605174353_0032_D.gyroflow \
-    --camera-csv data/dji_camera_data.csv -o data/dji_bridge.json
-./cpp_core/build/gyroflow_cpp_stabilize data/DJI_20260605174353_0032_D.MP4 \
-    --telemetry data/dji_bridge.json -o /tmp/out.mp4 --max-frames 120   # default: 16:9 crop
+cmake --build cpp_core/build -j && (cd cpp_core/build && ctest --output-on-failure)   # 6/6
+
+# stabilize (default: 16:9 crop, EnvelopeFollower zoom; --keep-sensor for 4:3,
+#            --zoom-method gaussian for the other method)
+python3 tools/export_bridge_json.py INPUT.MP4 -o bridge.json        # needs a Gyroflow binary
+./cpp_core/build/gyroflow_cpp_stabilize INPUT.MP4 --telemetry bridge.json -o out.mp4 --codec h265
+
+# validate math vs golden (encoder-independent), per method:
+gyroflow PROJECT.gyroflow --export-metadata "3:/tmp/gf_meta.json"
+./cpp_core/build/gyroflow_cpp_validate bridge.json --frames N --zoom-method envelope > /tmp/cpp.csv
+python3 tools/compare_gyroflow_metadata.py /tmp/gf_meta.json /tmp/cpp.csv             # expect PASS
+
+# stabilization quality (before vs after):
+python3 tools/stabilization_quality.py --compare INPUT.MP4 out.mp4 --max-frames 300
 ```
-Validate the math against golden Gyroflow metadata (encoder-independent):
-```sh
-gyroflow data/DJI_20260605174353_0032_D.gyroflow --export-metadata "3:/tmp/gf_meta.json"
-./cpp_core/build/gyroflow_cpp_validate data/dji_bridge.json --frames 973 > /tmp/cpp.csv
-python3 tools/compare_gyroflow_metadata.py /tmp/gf_meta.json /tmp/cpp.csv   # expect PASS
-```
-Measure stabilization quality (how much shake was removed, before vs after):
-```sh
-python3 tools/stabilization_quality.py --compare \
-    data/DJI_20260605174353_0032_D.MP4 /tmp/out.mp4 --max-frames 300
-```
-Validation metrics (sample clip): global camera shake (phase-correlation) **−89%**
-(10.5→1.2 px), optical-flow motion −40% (residual ≈7.6 px is the walking subject, not
-shake), ITF +1.56 dB; worst-frame black-border fraction ≈0.16% (16:9 crop) / ≈0.07% (full
-sensor) with adaptive zoom. The output is now 3840×2160 16:9 by default (use `--keep-sensor`
-for the 4:3 sensor). `data/` is gitignored.
+Sample clip + project + bridge live under `data/` (gitignored): `DJI_20260605174353_0032_D`.

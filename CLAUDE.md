@@ -88,13 +88,17 @@ cmake --build cpp_core/build -j
 The core library and unit tests have no external deps (JSON vendored in `third_party/`); the
 `gyroflow_cpp_stabilize` CLI is built only when OpenCV is found.
 
-Implemented (Phase 1 headless DJI stabilizer + Phase 2 adaptive zoom + Gyroflow
+Implemented (Phase 1 headless DJI stabilizer + Phase 2 dynamic zoom + Gyroflow
 `output_dimension` framing): `distortion/` (OpenCV fisheye), `smoothing/default_algo`,
-`stabilization/{frame_transform,undistort}`, `mat3.hpp`, `zooming/adaptive_zoom`,
-`telemetry_io` (JSON bridge), and `tools/gyroflow_cpp_stabilize.cpp`. Each `*.cpp` is a
-faithful port of the matching `src/core/` Rust file — check changes against Gyroflow golden
-output. The math is validated against golden Gyroflow metadata (smoothing ≤0.0147°, adaptive
-fov ≤0.0012% over 973 frames) via `tools/gyroflow_cpp_validate` (OpenCV-free) +
+`stabilization/{frame_transform,undistort}` (incl. per-row rolling-shutter), `mat3.hpp`,
+`zooming/adaptive_zoom` (**both** temporal methods — EnvelopeFollower default + GaussianFilter,
+`--zoom-method`), `telemetry_io` (JSON bridge), and `tools/gyroflow_cpp_stabilize.cpp`. Input
+is still 8-bit OpenCV decode and telemetry is still bridged (native 10-bit decode + native DJI
+parse are pending — see `cpp_core/TODO.md`). Each `*.cpp` is a faithful port of the matching
+`src/core/` Rust file — check changes against Gyroflow golden output. The math is validated
+against golden Gyroflow metadata (smoothing ≤0.0147°, adaptive fov ≤0.0012% over 973 frames;
+both zoom methods ≤0.0047% over the full 11 934-frame dji6 clip) via `tools/gyroflow_cpp_validate`
+(OpenCV-free, `--zoom-method`) +
 `tools/compare_gyroflow_metadata.py`; stabilization quality (shake removed, before/after) via
 `tools/stabilization_quality.py` (ITF + residual inter-frame motion). Scope/migration order
 and validation numbers live in `cpp_core/README.md` and `cpp_core/DEVELOPMENT_PLAN.md`; the
