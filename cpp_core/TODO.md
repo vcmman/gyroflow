@@ -126,7 +126,19 @@ crop, so a smoothing-only gate's real-world gain is marginal and strength-fragil
 path (`tools/l1_optimal_experiment.py`, scipy LP) and compared to default_algo *at the same crop
 budget*: real dji6 jolt segments show **−51% to −77% output-path jerk at no extra crop** (vs the
 gate's marginal ~12%), because it is crop-aware AND finds optimal static/linear/parabolic paths.
-Ported to C++ on this branch (`--smoothing l1`, dependency-free ADMM).
+
+**C++ L1-optimal IMPLEMENTED (JOLT_RND E10)** — `smoothing/l1_optimal.{hpp,cpp}`, per-euler ADMM
+(dependency-free banded solve + over-relaxation), box-constrained; `--smoothing l1` on validate +
+stabilize; default path untouched (ctest 7/7). Full dji6 (11 934 frames): **−28% output-path
+jerk at a higher min-fov (less pumping), or −48% at 1.0× crop**. (Watch ADMM convergence: needs
+~2000–4000 iters at full-clip scale; 500 looks worse.)
+
+Remaining to productionize (deferred — revisit later):
+- **True crop-window inclusion constraint** (couples axes) instead of the per-euler-axis box
+  proxy; derive the box from `max_zoom` directly so L1 is self-contained (no match-default).
+- **Rendered/image-layer confirmation** on a real speed-bump clip (dji6 may lack clean bumps).
+- ADMM convergence/iteration tuning (adaptive rho / residual stop) for very long clips; possibly
+  windowing.
 
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,

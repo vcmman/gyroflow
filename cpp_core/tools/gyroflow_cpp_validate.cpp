@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "gyroflow/smoothing/default_algo.hpp"
+#include "gyroflow/smoothing/l1_optimal.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/telemetry_io.hpp"
 #include "gyroflow/zooming/adaptive_zoom.hpp"
@@ -44,6 +45,9 @@ int main(int argc, char** argv) {
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;
+    std::string smoothing = "default";   // default | l1
+    L1OptimalParams l1;
+    bool l1_match_default = false;        // set L1 crop box = default_algo's per-axis deviation
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -68,6 +72,28 @@ int main(int argc, char** argv) {
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
         else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
         else if (a == "--enhanced") dcr = true;  // recommended preset (SMOOTHING_RND §8e) = DCR on
+        else if (a == "--smoothing") smoothing = next("--smoothing");
+        else if (a == "--l1-match-default") l1_match_default = true;
+        else if (a == "--l1-deviation") {
+            const std::string s = next("--l1-deviation");
+            const std::size_t c1 = s.find(',');
+            if (c1 == std::string::npos) {
+                l1.max_deviation_deg = {std::stod(s), std::stod(s), std::stod(s)};
+            } else {
+                const std::size_t c2 = s.find(',', c1 + 1);
+                l1.max_deviation_deg = {std::stod(s.substr(0, c1)),
+                                        std::stod(s.substr(c1 + 1, c2 - c1 - 1)),
+                                        std::stod(s.substr(c2 + 1))};
+            }
+        }
+        else if (a == "--l1-iters") l1.iterations = std::stoi(next("--l1-iters"));
+        else if (a == "--l1-weights") {
+            const std::string s = next("--l1-weights");
+            const std::size_t c1 = s.find(','), c2 = s.find(',', c1 + 1);
+            l1.w1 = std::stod(s.substr(0, c1));
+            l1.w2 = std::stod(s.substr(c1 + 1, c2 - c1 - 1));
+            l1.w3 = std::stod(s.substr(c2 + 1));
+        }
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -134,7 +160,18 @@ int main(int argc, char** argv) {
     sp.dcr_window_s = dcr_window;
     sp.dcr_power = dcr_power;
     sp.look_ahead_s = look_ahead;
-    const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    std::vector<TimeQuat> smoothed;
+    if (smoothing == "l1") {
+        if (l1_match_default) {  // crop box = the deviation default_algo actually used
+            const std::vector<TimeQuat> def = smoothDefault(meta.quaternions, duration_ms, sp);
+            l1.max_deviation_deg = frameEulerMaxDeviationDeg(meta.quaternions, def, fps);
+            std::cerr << "L1 match-default crop box (deg): " << l1.max_deviation_deg[0] << ", "
+                      << l1.max_deviation_deg[1] << ", " << l1.max_deviation_deg[2] << "\n";
+        }
+        smoothed = smoothL1Optimal(meta.quaternions, fps, l1);
+    } else {
+        smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    }
 
     // Adaptive FOVs over [0, frames), at ts = frame*1000/fps (Gyroflow convention).
     TransformParams tp;

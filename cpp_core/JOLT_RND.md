@@ -263,6 +263,34 @@ may not contain clean bumps), or (b) build **crop-constrained joint smooth↔zoo
 fully reject the cheap oscillation while *bounding* the expensive sustained rejection to the
 crop budget. The smoothing-only gate alone is not the win.
 
+### E10 — L1-optimal ported to C++, run on the FULL dji6 clip
+Implemented L1-optimal as a C++ smoothing mode (`smoothing/l1_optimal.{hpp,cpp}`): per euler
+channel, **ADMM** (dependency-free — banded SPD solve factored once + soft-threshold + box
+projection, with over-relaxation 1.8), box = per-axis crop budget. Wired into both
+`gyroflow_cpp_validate` and `gyroflow_cpp_stabilize` (`--smoothing l1`, `--l1-deviation`,
+`--l1-match-default`, `--l1-iters`). Default path untouched (parity), ctest 7/7.
+
+Full dji6 0005 (11 934 frames), output-path jerk RMS / min fov / med fov:
+
+| smoothing | out-jerk | min fov | med fov |
+|---|---:|---:|---:|
+| default_algo | 13.52 | 0.902 | 1.083 |
+| L1 (0.8× default's box) | **9.76 (−28%)** | **0.955** | 0.995 |
+| L1 (1.0× default's box) | **7.10 (−48%)** | 0.871 | 0.947 |
+
+Confirmed at full-clip scale: L1 is 28–48% steadier. At the 0.8× box it is steadier **and** has
+a *higher* min fov than default — i.e. it crops more evenly instead of pumping deep at jolts
+(default's deeper fov dips = the pumping). At 1.0× it trades a bit more crop for −48% jerk.
+
+**Trap found:** ADMM convergence is scale-dependent — 500 iters (fine on 400-frame segments)
+was *under-converged* on 12 k frames and looked WORSE than default; it needs ~2000–4000 iters
+(over-relaxation ~halves that). Always check convergence before judging.
+
+Remaining gaps: per-euler-channel box is a proxy for the true coupled crop-window inclusion
+constraint; still IMU-layer (no rendered/image-layer confirmation yet); ADMM iteration count
+for very long clips. But the direction is confirmed — L1-optimal materially beats the
+velocity-adaptive low-pass on the jolt case at comparable crop.
+
 ### E9 — L1-optimal camera path prototype — a real win at equal crop (the promising direction)
 Prototyped L1-optimal (Grundmann 2011) in Python (`tools/l1_optimal_experiment.py`, scipy HiGHS
 LP): per euler channel, minimize `w1|D1 p| + w2|D2 p| + w3|D3 p|` (=> static/linear/parabolic

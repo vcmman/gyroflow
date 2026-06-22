@@ -23,6 +23,7 @@
 #include <opencv2/videoio.hpp>
 
 #include "gyroflow/smoothing/default_algo.hpp"
+#include "gyroflow/smoothing/l1_optimal.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/stabilization/undistort.hpp"
 #include "gyroflow/telemetry_io.hpp"
@@ -88,6 +89,9 @@ int main(int argc, char** argv) {
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
     double zoom_look_ahead = -1.0;         // <0 = offline; >=0 = real-time FOV look-ahead (s)
     bool per_axis = false;
+    std::string smoothing = "default";   // default | l1
+    bool l1_match_default = false;
+    L1OptimalParams l1;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     double master_smoothness = 0.5, dev_clamp = 0.0, dev_clamp_soft = 0.0, dev_ref_tau = 0.03;
     bool dcr = false;
@@ -144,6 +148,21 @@ int main(int argc, char** argv) {
         // only helped one clip and forced black borders / more crop. Keeps the golden default
         // (scalar, dcr off) intact; explicit flags after --enhanced still override.
         else if (a == "--enhanced") dcr = true;
+        else if (a == "--smoothing") smoothing = next("--smoothing");
+        else if (a == "--l1-match-default") l1_match_default = true;
+        else if (a == "--l1-deviation") {
+            const std::string s = next("--l1-deviation");
+            const std::size_t c1 = s.find(',');
+            if (c1 == std::string::npos) {
+                l1.max_deviation_deg = {std::stod(s), std::stod(s), std::stod(s)};
+            } else {
+                const std::size_t c2 = s.find(',', c1 + 1);
+                l1.max_deviation_deg = {std::stod(s.substr(0, c1)),
+                                        std::stod(s.substr(c1 + 1, c2 - c1 - 1)),
+                                        std::stod(s.substr(c2 + 1))};
+            }
+        }
+        else if (a == "--l1-iters") l1.iterations = std::stoi(next("--l1-iters"));
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -248,7 +267,19 @@ int main(int argc, char** argv) {
               << (look_ahead > 0.0 ? (", look-ahead " + std::to_string(look_ahead) + " s (in-camera)")
                                    : std::string(", offline (unlimited look-ahead)"))
               << ")...\n";
-    const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    std::vector<TimeQuat> smoothed;
+    if (smoothing == "l1") {
+        if (l1_match_default) {
+            const std::vector<TimeQuat> def = smoothDefault(meta.quaternions, duration_ms, sp);
+            l1.max_deviation_deg = frameEulerMaxDeviationDeg(meta.quaternions, def, fps);
+        }
+        std::cout << "  L1-optimal: crop box (deg) " << l1.max_deviation_deg[0] << ", "
+                  << l1.max_deviation_deg[1] << ", " << l1.max_deviation_deg[2]
+                  << ", iters " << l1.iterations << "\n";
+        smoothed = smoothL1Optimal(meta.quaternions, fps, l1);
+    } else {
+        smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    }
 
     // Choose the encoder: ffmpeg pipe (H.264/H.265 + audio) when available, else OpenCV.
     const bool ffmpeg_ok = use_ffmpeg && ffmpegAvailable(ffmpeg_bin);
