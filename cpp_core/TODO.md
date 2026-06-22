@@ -115,6 +115,15 @@ adaptive zoom then "pumps" or hits `max_zoom` (black borders). The speed-bump jo
 the L1 jerk-limiting comparison is in **`cpp_core/SMOOTHING_RND.md`** §5 (L1 code on this
 branch: `--smoothing l1`).
 
+**Finding so far (JOLT_RND E8) — smoothing-only jolt rejection is NOT a clear win, decision
+deferred.** On a *synthetic* pure-oscillation bump a moderate gate cuts output-path jerk
+~35–40% at zero zoom cost; but on *real* dji6 jolts it only helps ~12% at jr≈0.3 and regresses
+past that (jerk rises, zoom eaten toward the `max_zoom` clamp). Real jolts = oscillation + a
+small *sustained* attitude shift: the oscillation is cheap to reject, the sustained part costs
+crop, so a smoothing-only gate's real-world gain is marginal and strength-fragile. Deferred
+next steps: (a) real-footage validation on an actual speed-bump clip; (b) crop-constrained
+joint smoothing↔zoom (the root fix; couples smoothing to the zoom margin).
+
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
 **merged** — cuts the rotational vertical bob −45…75% by only loosening when motion is fast AND
@@ -128,10 +137,9 @@ ceiling), and a Gaussian base kernel beats EMA+DCR on jerk at equal crop. Candid
   reduce follow around detected impacts) — most targeted, medium cost.
 - **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
   constant/linear/parabolic path; absorbs transients without breathing.
-- **Crop-constrained joint smoothing↔zoom** instead of the two-stage smooth-then-zoom.
 - **Spike/outlier rejection** (Hampel/median) on the attitude before smoothing.
-- Add a **jerk-RMS / P95 residual-motion** metric to `stabilization_quality.py` (mean-based
-  ITF/flow average jolts away).
+- ✅ Done: **jerk-RMS / P95 / ITF-P05** metrics added to `stabilization_quality.py`; IMU-layer
+  `tools/jolt_analysis.py`; `tools/make_synthetic_jolt.py` (bump + gaussian profiles).
 
 ### 7. Remaining parity (lower priority)
 - ✅ **Per-axis smoothing** — ported (`DefaultAlgoParams::per_axis` + `smoothness_pitch/yaw/roll`,
