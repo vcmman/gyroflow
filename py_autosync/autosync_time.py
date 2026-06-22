@@ -237,7 +237,7 @@ def _cost_interp(offs: float, of: GyroSeries, gt_ms: np.ndarray, gw: np.ndarray)
 
 def find_offset(of: GyroSeries, gyro: GyroSeries, initial_offset_ms: float, search_size_ms: float,
                 of_sample_rate_hz: float, gyro_sample_rate_hz: float, lpf_hz: float = 20.0,
-                interp: bool = False) -> OffsetResult:
+                interp: bool = False, parabolic: bool = False) -> OffsetResult:
     """Find the timestamp delay between ``of`` (video-side) and ``gyro`` (IMU-side).
 
     20 Hz forward-backward low-pass both signals, sweep [initial +/- search] at 1 ms, refine
@@ -247,6 +247,10 @@ def find_offset(of: GyroSeries, gyro: GyroSeries, initial_offset_ms: float, sear
     interp=False (default): nearest-upper IMU lookup, bit-for-bit faithful to the Rust/C++ port
     (accuracy ceiling ~= one IMU sample interval). interp=True: linear-interpolated IMU lookup,
     which removes that quantization bias at the cost of exact parity.
+
+    parabolic=True: after the 0.01 ms refine grid, fit a parabola to the three cost samples
+    around the minimum and move to its analytic vertex, removing the residual refine-grid step.
+    Only meaningful with a continuous cost curve, so it implies/pairs with ``interp``.
     """
     result = OffsetResult()
     if len(of) == 0 or len(gyro) == 0:
@@ -296,6 +300,20 @@ def find_offset(of: GyroSeries, gyro: GyroSeries, initial_offset_ms: float, sear
         if c < best_cost:
             best_cost, best_off = c, offs
 
+    # Optional parabolic (sub-grid) vertex of the cost curve around the refine minimum.
+    # Fit a parabola through (best_off-step, best_off, best_off+step); its vertex offset is
+    # delta = 0.5*(c_minus - c_plus)/(c_minus - 2*c0 + c_plus) in units of `step`. Guard on a
+    # convex denominator and |delta| <= 1 (the bracket really contains a minimum).
+    if parabolic:
+        c_minus = cost(best_off - step)
+        c_plus = cost(best_off + step)
+        denom = c_minus - 2.0 * best_cost + c_plus
+        if np.isfinite(c_minus) and np.isfinite(c_plus) and denom > 0.0:
+            delta = 0.5 * (c_minus - c_plus) / denom
+            if -1.0 <= delta <= 1.0:
+                best_off = best_off + delta * step
+                best_cost = cost(best_off)
+
     # Matches at the optimum (for reporting).
     query = ((of_f.t - best_off) * 1000.0).astype(np.int64)
     idx = np.searchsorted(keys, query, side="left")
@@ -342,3 +360,154 @@ def load_quaternions(path: str):
     quats = quats / np.linalg.norm(quats, axis=1, keepdims=True)
     order = np.argsort(t_ms, kind="stable")
     return t_ms[order], quats[order]
+
+
+# ---------------------------------------------------------------------------
+# Real angular-velocity loading (for syncing two independently measured signals).
+# `find_offset`'s cost weights and the 3 deg/s motion gate are tuned for deg/s, so every
+# loader below returns a GyroSeries with t in ms and w in deg/s.
+# ---------------------------------------------------------------------------
+
+_RAD2DEG = 180.0 / np.pi
+
+
+def orient_vec(w: np.ndarray, orientation: str) -> np.ndarray:
+    """Re-map/flip axes of an (N,3) array per a 3-char Gyroflow orientation string.
+
+    Upper-case keeps an axis, lower-case negates it: e.g. ``"xzY"`` -> (-x, -z, +y).
+    Matches ``tools/gcsv_simple_gyro_compare.py``'s convention so GCSV ``orientation`` headers
+    behave identically here.
+    """
+    if len(orientation) != 3:
+        raise ValueError(f"orientation must be 3 characters, got {orientation!r}")
+    src = {"X": w[:, 0], "x": -w[:, 0], "Y": w[:, 1], "y": -w[:, 1], "Z": w[:, 2], "z": -w[:, 2]}
+    return np.stack([src[c] for c in orientation], axis=1)
+
+
+def estimate_sample_rate_hz(series: "GyroSeries") -> float:
+    """Robust sample rate from the median timestamp spacing (Hz). 0 if undefined."""
+    if len(series) < 2:
+        return 0.0
+    dt_ms = float(np.median(np.diff(series.t)))
+    return 1000.0 / dt_ms if dt_ms > 0.0 else 0.0
+
+
+def load_gcsv(path: str, orientation: Optional[str] = None) -> "GyroSeries":
+    """Load a Gyroflow GCSV IMU log into a deg/s :class:`GyroSeries` (t in ms).
+
+    Honours the ``tscale`` (timestamp scale, default 0.001 -> seconds) and ``gscale`` (gyro scale
+    to rad/s, default 1.0) header keys, matching telemetry-parser's GCSV path. Timestamps are
+    re-based to start at 0. ``orientation`` (e.g. ``"xzY"``) overrides any header orientation; pass
+    ``None`` to leave axes as stored.
+    """
+    header: dict = {}
+    data_header = None
+    rows = []
+    with open(path, "r", newline="", encoding="utf-8-sig") as f:
+        import csv as _csv
+        for raw in _csv.reader(f):
+            row = [c.strip() for c in raw]
+            if not row or all(not c for c in row):
+                continue
+            if data_header is None:
+                if row[0] in ("t", "time"):
+                    data_header = row
+                    continue
+                if len(row) >= 2:
+                    header[row[0]] = row[1]
+                continue
+            rows.append(row)
+    if data_header is None:
+        raise ValueError("not a GCSV file (no data header starting with 't' or 'time')")
+
+    time_scale = float(header.get("tscale", "0.001"))      # raw -> seconds
+    gscale = float(header.get("gscale", "1.0"))            # raw -> rad/s
+    data = np.array([[float(x) for x in r[:4]] for r in rows if len(r) >= 4], dtype=float)
+    if data.size == 0:
+        raise ValueError("GCSV has no t,gx,gy,gz samples")
+    t_ms = (data[:, 0] * time_scale) * 1000.0
+    t_ms = t_ms - t_ms[0]
+    w = data[:, 1:4] * gscale * _RAD2DEG                   # rad/s -> deg/s
+    orient = orientation if orientation is not None else header.get("orientation")
+    if orient:
+        w = orient_vec(w, orient)
+    order = np.argsort(t_ms, kind="stable")
+    return GyroSeries(t_ms[order], w[order])
+
+
+_TS_NAMES_MS = ("timestamp_ms", "time_ms", "t_ms", "ts_ms")
+_TS_NAMES_S = ("timestamp_s", "time_s", "t_s", "ts_s", "seconds")
+_TS_NAMES_BARE = ("timestamp", "time", "t", "ts")
+_AXIS_SETS = (
+    ("wx_deg_s", "wy_deg_s", "wz_deg_s"), ("wx_rad_s", "wy_rad_s", "wz_rad_s"),
+    ("wx", "wy", "wz"), ("gx", "gy", "gz"), ("gyro_x", "gyro_y", "gyro_z"),
+    ("omega_x", "omega_y", "omega_z"), ("x", "y", "z"),
+)
+
+
+def load_angular_velocity_csv(path: str, units: str = "deg",
+                              orientation: Optional[str] = None) -> "GyroSeries":
+    """Load a generic angular-velocity CSV into a deg/s :class:`GyroSeries` (t in ms).
+
+    Auto-detects a timestamp column (``timestamp_ms`` / ``t`` / ``timestamp_s`` / ...) and a
+    3-axis set (``wx,wy,wz`` / ``gx,gy,gz`` / ``wx_deg_s,...`` / ``x,y,z`` / ...). Reads the
+    ``omega`` sub-command's own output directly. Units are inferred from a ``_deg``/``_rad`` axis
+    suffix when present, else from ``units`` ('deg' or 'rad'). Re-based to start at 0.
+    """
+    with open(path, "r") as f:
+        header = [h.strip() for h in f.readline().strip().split(",")]
+    lower = [h.lower() for h in header]
+
+    def find(name):
+        return lower.index(name) if name in lower else -1
+
+    ts = next((find(n) for n in (_TS_NAMES_MS + _TS_NAMES_S + _TS_NAMES_BARE) if find(n) >= 0), -1)
+    if ts < 0:
+        raise ValueError(f"no timestamp column in {header}")
+    ts_name = lower[ts]
+    if ts_name in _TS_NAMES_S:
+        ts_scale_ms = 1000.0
+    elif ts_name in _TS_NAMES_MS:
+        ts_scale_ms = 1.0
+    else:  # bare name: assume ms (the omega dump and most logs are ms)
+        ts_scale_ms = 1.0
+
+    axes = next((cols for cols in _AXIS_SETS if all(c in lower for c in cols)), None)
+    if axes is None:
+        raise ValueError(f"no recognised angular-velocity columns in {header}")
+    ax = [lower.index(c) for c in axes]
+
+    if "deg" in axes[0]:
+        to_deg = 1.0
+    elif "rad" in axes[0]:
+        to_deg = _RAD2DEG
+    else:
+        to_deg = 1.0 if units == "deg" else _RAD2DEG
+
+    data = np.genfromtxt(path, delimiter=",", skip_header=1, usecols=(ts, *ax))
+    if data.ndim == 1:
+        data = data[None, :]
+    t_ms = (data[:, 0] * ts_scale_ms)
+    t_ms = t_ms - t_ms[0]
+    w = data[:, 1:4] * to_deg
+    if orientation:
+        w = orient_vec(w, orientation)
+    order = np.argsort(t_ms, kind="stable")
+    return GyroSeries(t_ms[order], w[order])
+
+
+def load_motion(path: str, units: str = "deg", orientation: Optional[str] = None) -> "GyroSeries":
+    """Load a real angular-velocity signal, auto-detecting GCSV vs generic CSV.
+
+    GCSV is recognised by a metadata block followed by a ``t``/``time`` data header; anything else
+    is treated as a generic angular-velocity CSV. Returns deg/s, t in ms, re-based to 0.
+    """
+    with open(path, "r", encoding="utf-8-sig") as f:
+        head = [f.readline() for _ in range(40)]
+    # GCSV signature: a `t`/`time` data header preceded by a metadata block (so not on line 0).
+    # A generic CSV puts its column header on line 0, even if that header is bare `t,...`.
+    first_data_hdr = next((i for i, line in enumerate(head)
+                           if line and line.strip().split(",")[0].strip() in ("t", "time")), -1)
+    is_gcsv = first_data_hdr > 0
+    return (load_gcsv(path, orientation) if is_gcsv
+            else load_angular_velocity_csv(path, units, orientation))

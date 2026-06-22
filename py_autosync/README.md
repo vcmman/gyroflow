@@ -6,9 +6,13 @@ timestamp-synchronization accuracy evaluator. It is a sibling of the C++ port in
 (`essential_matrix::find_offsets` + `filtering::Lowpass`).
 
 Given two angular-velocity time series (one from the video, one from the IMU) it finds the
-constant timestamp delay (ms) that best aligns them. The video-side motion is synthesised from
-DJI fused quaternions rather than decoded from pixels, which also enables ground-truthed accuracy
-evaluation (inject a known offset, measure recovery).
+constant timestamp delay (ms) that best aligns them. The `sync` mode syncs two **real**
+independently-measured signals (a GCSV IMU log + a camera-motion CSV); the `selftest`/`compare`
+modes synthesise the video side from DJI fused quaternions for ground-truthed accuracy evaluation
+(inject a known offset, measure recovery).
+
+**New here? Start with [`QUICKSTART.md`](QUICKSTART.md)** — it covers the production `sync` path,
+input formats, precision modes, deployment limits, and future improvements.
 
 ## Requirements
 
@@ -21,6 +25,9 @@ pip install -r requirements.txt   # numpy, scipy
 ## Usage
 
 ```sh
+# Production: sync two real signals (IMU GCSV + camera-motion CSV) -> offset in ms:
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video camera_motion.csv --interp-parabolic
+
 # Inject known offsets and measure recovery accuracy (timestamp-sync precision):
 python3 gyroflow_autosync.py selftest --quat ../data/dji_quaternions_full.csv \
     --fps 30 --search 120 --inject="-30,-10,0,10,30" --noise 1.5
@@ -41,9 +48,9 @@ Both `dji_quaternions_full.csv` and `dji_camera_data.csv` are auto-detected.
 
 | File | Role |
 |------|------|
-| `autosync_time.py` | Core: quaternion helpers, `Lowpass`, `quaternions_to_angular_velocity`, `resample_angular_velocity`, `find_offset`, `load_quaternions` |
-| `gyroflow_autosync.py` | CLI: `selftest` / `compare` / `omega` |
-| `test_autosync_time.py` | Unit tests (lowpass, ω, recovery, noise robustness) |
+| `autosync_time.py` | Core: quaternion helpers, `Lowpass`, `quaternions_to_angular_velocity`, `resample_angular_velocity`, `find_offset`, `load_quaternions`, real-signal loaders (`load_gcsv`, `load_angular_velocity_csv`, `load_motion`) |
+| `gyroflow_autosync.py` | CLI: `sync` (two real signals) / `selftest` / `compare` / `omega` |
+| `test_autosync_time.py` | Unit tests (lowpass, ω, recovery, noise robustness, interp bias, loaders, sync) |
 | `variance_experiment.py` | Monte-Carlo precision study: bias / variance / range vs noise, repeatability, gyro-bias robustness |
 | `segment_experiment.py` | Inject one fixed offset, estimate per segment, plot recovered offset vs segment (nearest vs interp) → `segment_offsets.png/.csv` |
 | `segment_stats.py` | Sweep segment count over many noise realizations → bias / repeatability / 1/√N variance averaging → `segment_stats.png/.csv` |
@@ -131,6 +138,19 @@ refine loop, which only stepped 200×0.01 ms from `center-2` — i.e. searched t
 `[center-2, center]` and could never climb above the coarse pick; the interp path sweeps the full
 symmetric `[center-2, +2]`.
 
+### Parabolic sub-grid vertex (`parabolic=True`)
+
+`find_offset(..., interp=True, parabolic=True)` adds an analytic refinement on top of `interp`:
+after the 0.01 ms refine grid it fits a parabola through the three cost samples at
+`(best−step, best, best+step)` and moves to its vertex
+`δ = ½·(c₋ − c₊)/(c₋ − 2c₀ + c₊)` (guarded to a convex bracket with `|δ| ≤ 1`). This removes the
+residual 0.01 ms grid step for ~two extra cost evaluations. On a coarse-IMU fixture it tracks
+`interp` to within a few µs — the remaining error is no longer the refine grid but the IMU/video
+sampling itself, so the gain over plain `interp` is small once the grid is already 0.01 ms.
+
+From the CLI: `--interp` selects interpolated lookup; `--interp-parabolic` adds the vertex step
+(and implies `--interp`).
+
 ### Segmented estimates differ by ~1 ms — what it means
 
 If 5 per-segment offsets spread by ~1 ms, that is **20× the random floor (0.05 ms)**, so it is
@@ -156,5 +176,6 @@ offset** over the whole clip, then estimate per segment. Findings (DJI clip, 30 
 - Net: **`interp` (kills the bias) + averaging multiple well-excited segments (kills the variance)**
   is what gets you to ~0.02 ms; averaging alone leaves the `nearest` quantization bias intact.
 
-See `../cpp_core/AUTOSYNC_TIME_REPORT.md` §8 for higher-precision calibration approaches
-(parabolic peak interpolation, GCC-PHAT, continuous-time/Kalibr, offset+skew drift models).
+See `../cpp_core/AUTOSYNC_TIME_REPORT.md` §8 for the remaining higher-precision calibration
+approaches (GCC-PHAT, continuous-time/Kalibr, offset+skew drift models); parabolic peak
+interpolation is now implemented (`parabolic=True`, above).
