@@ -238,6 +238,31 @@ strength overcorrects** — hits the clamp *and* adds its own snap-jerk (RMS 13.
 the tight filter snaps at the jolt edges. → recommend default ~0.4; high-strength needs the
 crop-constrained joint smooth↔zoom (next phase).
 
+### E8 — Does the gate actually improve stabilization? Synthetic win does NOT transfer to real footage
+Re-instated the gate (throwaway) and measured the real stability metric — the **output-path
+jerk** (smoothed-quat jerk RMS, the camera path the renderer uses) — *and* the zoom cost
+together, in a local window around the jolt, over a strength sweep.
+
+*Synthetic oscillatory bump* (8° / 16° / two-wheel): output jerk drops **~35–40%** at jr≈0.5
+(8°: 21.4→13.2) with **zero zoom cost** (min fov unchanged, no clamp, local fov dip <1%);
+clear optimum (jerk rises again at jr=1.0 from the edge snap). A clean win.
+
+*Real dji6, local windows around the 5 worst jolts*: only **jr≈0.3 helps, and only ~12%**
+(out-jerk 18.7→16.4); jr≥0.5 *regresses* (19.5 → 26.9 → 42.8) and min fov falls 0.93 → 0.90 →
+0.86 → 0.80 → **0.769 (clamp)**. The synthetic win does not transfer.
+
+**Why:** on synthetic data the bump is a *pure* oscillation that returns to baseline, so
+rejecting it costs no crop. Real jolts are an **oscillation + a small sustained attitude
+shift** (the tell: min fov drops on real data but not synthetic). The oscillation is cheap to
+reject; the sustained part costs crop and caps the net benefit. A smoothing-only gate removes
+the cheap part but pays for the expensive part → marginal, strength-fragile real-world gain.
+
+**Conclusion:** not ready to ship as an algorithm change. To get confident, either (a) validate
+on a **real clip with an actual speed-bump** (rendered, image-layer jerk + border check — dji6
+may not contain clean bumps), or (b) build **crop-constrained joint smooth↔zoom**, which can
+fully reject the cheap oscillation while *bounding* the expensive sustained rejection to the
+crop budget. The smoothing-only gate alone is not the win.
+
 ### E7 — Re-scope to the speed-bump jolt; re-analyze the existing algorithm (after the prototype was removed)
 Clarified that the "大坑" is specifically the **speed-bump jolt** (bicycle over a 减速带): an
 *oscillatory* impact (抖动), not the monotonic Gaussian deflection used in E2–E6. Added
