@@ -110,9 +110,10 @@ where DJI's native quaternion axis convention is normalized into the orientation
 ### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑") + running float
 Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
 distinguish an intentional fast pan from an unintentional jolt/bob and passes it through;
-adaptive zoom then "pumps" or hits `max_zoom` (black borders). A prototype + the measurement
-tooling and findings are recorded in **`cpp_core/SMOOTHING_RND.md`** (§5 covers the L1
-jerk-limiting comparison; the L1 code lives on `claude/speed-bump-jolt-rnd`, NOT merged).
+adaptive zoom then "pumps" or hits `max_zoom` (black borders). The speed-bump jolt research
+(scenario, severity sweep, gate prototype) is recorded in **`cpp_core/JOLT_RND.md`**;
+the L1 jerk-limiting comparison is in **`cpp_core/SMOOTHING_RND.md`** §5 (L1 code on this
+branch: `--smoothing l1`).
 
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
