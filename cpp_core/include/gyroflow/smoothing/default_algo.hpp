@@ -14,6 +14,16 @@ struct DefaultAlgoParams {
     double alpha_0_1s = 0.1;       // time constant at max velocity, seconds
     bool second_pass = true;
 
+    // Per-axis smoothing. When per_axis is true the algorithm smooths the three euler
+    // components of each relative rotation independently, each with its own velocity scaling
+    // (smoothness_pitch/yaw/roll), instead of a single slerp on the full quaternion. Matches
+    // src/core/smoothing/default_algo.rs (per_axis branch). per_axis == false (default) keeps
+    // the scalar path => existing golden parity.
+    bool per_axis = false;
+    double smoothness_pitch = 0.5; // scales euler component [0] (nalgebra roll about X)
+    double smoothness_yaw = 0.5;   // scales euler component [1] (nalgebra pitch about Y)
+    double smoothness_roll = 0.5;  // scales euler component [2] (nalgebra yaw about Z)
+
     // Camera diagonal FOV in degrees; fov_ratio = camera_diagonal_fov / 120.
     // Compute as 2*atan(diag/(2*fy))*180/PI (see compute_params.rs::calculate_camera_fovs).
     double camera_diagonal_fov = 120.0;

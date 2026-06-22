@@ -36,6 +36,8 @@ int main(int argc, char** argv) {
     bool keep_sensor = false;
     int out_w_override = 0, out_h_override = 0;
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
+    bool per_axis = false;
+    double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -46,6 +48,10 @@ int main(int argc, char** argv) {
         if (a == "--frames") frames = std::stol(next("--frames"));
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
         else if (a == "--zoom-method") zoom_method = next("--zoom-method");
+        else if (a == "--per-axis") per_axis = true;
+        else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
+        else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
+        else if (a == "--smoothness-roll") sm_roll = std::stod(next("--smoothness-roll"));
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -97,6 +103,10 @@ int main(int argc, char** argv) {
                                   static_cast<double>(height) * height);
     sp.camera_diagonal_fov =
         2.0 * std::atan(diag / (2.0 * lens.camera_matrix.fy)) * 180.0 / 3.14159265358979323846;
+    sp.per_axis = per_axis;
+    sp.smoothness_pitch = sm_pitch;
+    sp.smoothness_yaw = sm_yaw;
+    sp.smoothness_roll = sm_roll;
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Adaptive FOVs over [0, frames), at ts = frame*1000/fps (Gyroflow convention).

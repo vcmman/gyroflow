@@ -62,6 +62,7 @@ void usage(const char* prog) {
               << " <input.mp4> --telemetry <file.json> -o <output.mp4>\n"
               << "  Stabilization: [--max-zoom 130] [--zoom-method envelope|gaussian]"
               << " [--no-adaptive-zoom] [--fov 1.0]\n"
+              << "                 [--per-axis --smoothness-pitch/-yaw/-roll 0..1]\n"
               << "  Framing:       [--keep-sensor] [--output-size WxH]"
               << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
@@ -79,6 +80,8 @@ int main(int argc, char** argv) {
     bool adaptive_zoom = true;
     double max_zoom = 130.0;
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
+    bool per_axis = false;
+    double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     long max_frames = 0;
     int threads = 0;
 
@@ -111,6 +114,10 @@ int main(int argc, char** argv) {
         else if (a == "--no-adaptive-zoom") adaptive_zoom = false;
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
         else if (a == "--zoom-method") zoom_method = next("--zoom-method");
+        else if (a == "--per-axis") per_axis = true;
+        else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
+        else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
+        else if (a == "--smoothness-roll") sm_roll = std::stod(next("--smoothness-roll"));
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -195,6 +202,10 @@ int main(int argc, char** argv) {
                                   static_cast<double>(height) * height);
     sp.camera_diagonal_fov =
         2.0 * std::atan(diag / (2.0 * lens.camera_matrix.fy)) * 180.0 / 3.14159265358979323846;
+    sp.per_axis = per_axis;
+    sp.smoothness_pitch = sm_pitch;
+    sp.smoothness_yaw = sm_yaw;
+    sp.smoothness_roll = sm_roll;
     std::cout << "Smoothing " << meta.quaternions.size() << " quaternions (diag FOV "
               << sp.camera_diagonal_fov << " deg)...\n";
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);

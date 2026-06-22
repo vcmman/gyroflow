@@ -51,7 +51,7 @@ endif()
 
 enable_testing()
 
-foreach(test_name core fisheye telemetry_io transform adaptive_zoom imu_orientation)
+foreach(test_name core fisheye telemetry_io transform adaptive_zoom imu_orientation smoothing)
     add_executable(gyroflow_cpp_${test_name}_tests tests/test_${test_name}.cpp)
     target_link_libraries(gyroflow_cpp_${test_name}_tests PRIVATE gyroflow_cpp_core)
     add_test(NAME gyroflow_cpp_${test_name}_tests COMMAND gyroflow_cpp_${test_name}_tests)

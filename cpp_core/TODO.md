@@ -1,7 +1,7 @@
 # cpp_core — status & next steps (resume here)
 
 Headless C++ port of Gyroflow's stabilization core. Self-contained CMake project; math
-validated against Rust Gyroflow's golden metadata. Last updated 2026-06-19.
+validated against Rust Gyroflow's golden metadata. Last updated 2026-06-22.
 
 ## Current status (one line)
 
@@ -20,7 +20,8 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   OpenCV used only for video I/O.
 - **Smoothing — Default algo** (`smoothing/default_algo.*`): velocity-adaptive slerp (time
   constants `max_smoothness`↔`alpha_0_1s`, velocity-normalized), two-pass with the distance
-  term. Matches golden `stab_quat` ≤0.0166° (dji6 full 11 934 frames).
+  term. Matches golden `stab_quat` ≤0.0166° (dji6 full 11 934 frames). Includes the **per-axis**
+  branch (`--per-axis`, `smoothness_pitch/yaw/roll`; euler decompose/recompose) — golden ≤0.016°.
 - **Rolling-shutter correction** (`stabilization/frame_transform.*`): one 3×3 matrix per
   readout-axis row, each sampling attitude at that row's exposure time; kernel indexes by
   source row. Active whenever `frame_readout_time_ms > 0` (dji6: 12.98 ms, TopToBottom).
@@ -35,8 +36,8 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   attitude quaternions + lens profile + readout from the Rust Gyroflow CLI.
 - **Validation tooling**: `gyroflow_cpp_validate` (+ `--zoom-method`), `compare_gyroflow_
   metadata.py` (math vs golden), `stabilization_quality.py` (ITF + residual motion).
-- **Tests**: ctest **6/6** (core, fisheye, telemetry_io, transform, adaptive_zoom [both
-  methods, constant + varying signal], imu_orientation).
+- **Tests**: ctest **7/7** (core, fisheye, telemetry_io, transform, adaptive_zoom [both
+  methods, constant + varying signal], imu_orientation, smoothing [scalar + per-axis]).
 
 > Field result (dji6 0005, full 11 934-frame renders, 16:9 + 4:3): global camera shake
 > −62…63%, ITF +1.83 dB, on par with Gyroflow's own render (steadier only by ~0.05 px). See
@@ -78,7 +79,9 @@ where DJI's native quaternion axis convention is normalized into the orientation
 ### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑")
 Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
 distinguish an intentional fast pan from an unintentional jolt and passes the jolt through;
-adaptive zoom then "pumps" or hits `max_zoom` (black borders). Candidate upgrades:
+adaptive zoom then "pumps" or hits `max_zoom` (black borders). A prototype + the measurement
+tooling and findings are recorded in **`cpp_core/JOLT_RND.md`** (the gated-smoothing code was
+NOT merged). Candidate upgrades:
 - **Jerk/transient detection + non-causal variable-window smoothing** (widen the window /
   reduce follow around detected impacts) — most targeted, medium cost.
 - **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
@@ -89,7 +92,11 @@ adaptive zoom then "pumps" or hits `max_zoom` (black borders). Candidate upgrade
   ITF/flow average jolts away).
 
 ### 7. Remaining parity (lower priority)
-- Per-axis smoothing; `lens_correction_amount < 1`; color-range (full/limited).
+- ✅ **Per-axis smoothing** — ported (`DefaultAlgoParams::per_axis` + `smoothness_pitch/yaw/roll`,
+  `--per-axis`/`--smoothness-*` on validate + stabilize). Euler decompose/recompose matching
+  nalgebra's intrinsic X-Y-Z convention; scalar path untouched (bit-identical). Golden-validated
+  vs Gyroflow with distinct sliders: smoothed ≤0.016°, fov ≤0.0015% (ctest `smoothing`).
+- `lens_correction_amount < 1`; color-range (full/limited).
 - Other smoothing algos: `plain`, `fixed`, `none`, `focal_length` (only `default_algo` ported).
 - More distortion models (`opencv_standard`, poly3/5, …).
 - Optional GPU backend (OpenCL/wgpu).
