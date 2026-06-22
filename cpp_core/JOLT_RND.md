@@ -263,6 +263,29 @@ may not contain clean bumps), or (b) build **crop-constrained joint smooth↔zoo
 fully reject the cheap oscillation while *bounding* the expensive sustained rejection to the
 crop budget. The smoothing-only gate alone is not the win.
 
+### E9 — L1-optimal camera path prototype — a real win at equal crop (the promising direction)
+Prototyped L1-optimal (Grundmann 2011) in Python (`tools/l1_optimal_experiment.py`, scipy HiGHS
+LP): per euler channel, minimize `w1|D1 p| + w2|D2 p| + w3|D3 p|` (=> static/linear/parabolic
+segments) subject to `|p − raw| ≤ B`. The box `B` IS the crop-aware part the gate lacked. For a
+**fair** comparison, B per axis = the deviation `default_algo` actually used (read from the
+validate `o*`/`s*` columns) — i.e. *same crop budget, who produces the steadier path?*
+
+Results (output-path jerk RMS, the renderer's camera-path smoothness):
+- Synthetic speed-bump: jerk 21→~0 — L1 fully rejects the bump within default's crop (default
+  leaves ~20°/s) by holding the intended linear pan.
+- **Real dji6, three jolt segments at equal crop: −51% to −77%** (3.1→0.8, 6.6→1.5, 43.8→21.6),
+  L1 max-dev ≤ budget by construction. (Watch euler ±π wrap — must `np.unwrap` or B blows up.)
+
+So unlike the smoothing-only gate (E8: ~12%, regresses), **L1-optimal is a large, consistent
+win on real footage at no extra crop**, because it is crop-aware AND finds the optimal smooth
+path. This is the direction worth implementing.
+
+Caveats before shipping: the prototype is (1) per-euler-channel with a per-axis angular box
+(a proxy for the true crop-window inclusion constraint, which couples axes), (2) IMU-layer
+(output-path jerk, not a rendered/image-layer confirmation), (3) solved on 400-frame segments,
+not the full clip. A C++ port needs a dependency-free LP (the core is dependency-free) or an
+equivalent (ADMM / specialized solver), plus windowing for long clips.
+
 ### E7 — Re-scope to the speed-bump jolt; re-analyze the existing algorithm (after the prototype was removed)
 Clarified that the "大坑" is specifically the **speed-bump jolt** (bicycle over a 减速带): an
 *oscillatory* impact (抖动), not the monotonic Gaussian deflection used in E2–E6. Added

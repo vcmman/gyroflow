@@ -120,9 +120,13 @@ deferred.** On a *synthetic* pure-oscillation bump a moderate gate cuts output-p
 ~35–40% at zero zoom cost; but on *real* dji6 jolts it only helps ~12% at jr≈0.3 and regresses
 past that (jerk rises, zoom eaten toward the `max_zoom` clamp). Real jolts = oscillation + a
 small *sustained* attitude shift: the oscillation is cheap to reject, the sustained part costs
-crop, so a smoothing-only gate's real-world gain is marginal and strength-fragile. Deferred
-next steps: (a) real-footage validation on an actual speed-bump clip; (b) crop-constrained
-joint smoothing↔zoom (the root fix; couples smoothing to the zoom margin).
+crop, so a smoothing-only gate's real-world gain is marginal and strength-fragile.
+
+**L1-optimal is the winning direction (JOLT_RND E9).** Prototyped Grundmann-2011 L1-optimal
+path (`tools/l1_optimal_experiment.py`, scipy LP) and compared to default_algo *at the same crop
+budget*: real dji6 jolt segments show **−51% to −77% output-path jerk at no extra crop** (vs the
+gate's marginal ~12%), because it is crop-aware AND finds optimal static/linear/parabolic paths.
+Ported to C++ on this branch (`--smoothing l1`, dependency-free ADMM).
 
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
