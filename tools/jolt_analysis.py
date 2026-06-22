@@ -14,14 +14,18 @@ then pumps (or clamps at max_zoom => black borders).
 
 Metrics:
   * angular velocity (deg/s): raw vs smoothed — mean / P95 / max.
-  * angular jerk (deg/s^2): raw vs smoothed, RMS + P95 (transient-sensitive).
+  * angular jerk (deg/s^2): raw vs smoothed, RMS + P95 (transient-sensitive). See out_jerk_rms()
+    for the exact definition — this is the canonical "out-jerk" metric used across the analysis.
   * jolt pass-through: at the top-K raw-velocity frames, smoothed_vel / raw_vel. ~0 means the
     jolt was rejected; ~1 means it passed straight through to the stabilized path.
   * zoom pumping: fov std / range, and whether the deepest fov dips line up with jolt frames.
 
 Usage:
   ./cpp_core/build/gyroflow_cpp_validate bridge.json --frames N --zoom-method envelope > v.csv
+  # single-clip detailed report:
   python3 tools/jolt_analysis.py v.csv [--fps 29.97] [--top 20] [--plot out.png]
+  # compare runs (e.g. default vs L1): out-jerk + zoom + pass-through table
+  python3 tools/jolt_analysis.py default.csv --compare l1a.csv l1b.csv [--fps 29.97]
 """
 import argparse
 import sys
@@ -43,7 +47,8 @@ def _norm(q):
 
 
 def ang_vel(q, dt):
-    """Angular speed (deg/s) between consecutive unit quaternions; len == len(q)-1."""
+    """Inter-frame angular speed (deg/s): geodesic angle between consecutive unit quaternions
+    divided by dt. len == len(q)-1. (angle = 2*atan2(|vec(conj(q0)*q1)|, |w|).)"""
     q = _norm(q)
     q0, q1 = q[:-1], q[1:]
     # relative quat r = conj(q0) * q1  (conj of unit quat = inverse)
@@ -59,8 +64,28 @@ def ang_vel(q, dt):
     return np.degrees(angle) / dt
 
 
+def jerk(vel, dt_mid):
+    """Per-frame change of angular velocity (deg/s^2): |d(vel)/dt|. len == len(vel)-1.
+    (Strictly angular acceleration; used as the 'jerkiness'/non-smoothness proxy.)"""
+    return np.abs(np.diff(vel)) / dt_mid
+
+
 def rms(a):
     return float(np.sqrt(np.mean(a ** 2))) if len(a) else 0.0
+
+
+def out_jerk_rms(quats, dt, frames=None):
+    """Canonical "out-jerk" stability metric (deg/s^2): RMS of the per-frame change in the
+    path's inter-frame angular velocity. Lower = steadier. Pass the SMOOTHED (output) quats for
+    the stabilized-path jerk, or the raw quats for the input shake. `frames` optionally restricts
+    to a [start, stop) frame window (e.g. around a jolt); units/scale are identical either way so
+    runs are directly comparable."""
+    v = ang_vel(quats, dt)
+    j = jerk(v, dt[1:])
+    if frames is not None:
+        lo, hi = frames
+        j = j[max(0, lo - 2):max(0, hi - 2)]  # jerk[i] corresponds to frame i+2
+    return rms(j)
 
 
 def stat_line(name, a, unit):
@@ -68,30 +93,64 @@ def stat_line(name, a, unit):
             f"max {np.max(a):8.2f}  {unit}")
 
 
+def _dt(ts, fps):
+    if fps > 0:
+        return np.full(len(ts) - 1, 1.0 / fps)
+    dt = np.diff(ts)
+    dt[dt <= 0] = np.median(dt[dt > 0])
+    return dt
+
+
+def compare(paths, fps, top):
+    """Print an out-jerk / zoom / pass-through table across runs (e.g. default vs L1)."""
+    # worst-jolt frames are taken from the FIRST run's raw velocity, reused for all (so the
+    # local jolt window and pass-through frames are identical across runs).
+    ts0, raw0, _, _ = load(paths[0])
+    dt0 = _dt(ts0, fps)
+    rv0 = ang_vel(raw0, dt0)
+    k = min(top, len(rv0))
+    worst = np.argsort(rv0)[-k:]
+    print(f"{'run':<26}{'out_jerk':>10}{'jolt_jerk':>11}{'passthru':>10}"
+          f"{'min_fov':>9}{'med_fov':>9}   (jerk deg/s^2)")
+    for p in paths:
+        ts, raw, sm, fov = load(p)
+        dt = _dt(ts, fps)
+        rv, sv = ang_vel(raw, dt), ang_vel(sm, dt)
+        gj = out_jerk_rms(sm, dt)
+        # local jolt jerk: RMS over ±36-frame windows about each worst-jolt frame
+        loc = [out_jerk_rms(sm, dt, (max(0, f - 36), f + 36)) for f in worst]
+        pt = float(np.mean(sv[worst] / np.maximum(rv[worst], 1e-9)))
+        name = p.rsplit("/", 1)[-1]
+        print(f"{name:<26}{gj:>10.2f}{np.mean(loc):>11.2f}{pt:>10.3f}"
+              f"{fov.min():>9.4f}{np.median(fov):>9.4f}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="IMU-layer jolt / zoom-pumping analysis.")
     ap.add_argument("csv", help="gyroflow_cpp_validate output CSV")
+    ap.add_argument("--compare", nargs="+", metavar="CSV",
+                    help="compare these run(s) against the first CSV (out-jerk/zoom table)")
     ap.add_argument("--fps", type=float, default=0.0,
                     help="override fps; default derives dt from ts_ms")
     ap.add_argument("--top", type=int, default=20, help="# of worst jolt frames to summarise")
     ap.add_argument("--plot", help="write a velocity/jerk/fov plot to this PNG")
     a = ap.parse_args()
 
+    if a.compare:
+        compare([a.csv] + a.compare, a.fps, a.top)
+        return
+
     ts, raw, sm, fov = load(a.csv)
     n = len(ts)
     if n < 3:
         raise SystemExit("need >=3 frames")
-    if a.fps > 0:
-        dt = np.full(n - 1, 1.0 / a.fps)
-    else:
-        dt = np.diff(ts)
-        dt[dt <= 0] = np.median(dt[dt > 0])
+    dt = _dt(ts, a.fps)
     dt_mid = dt[1:]  # dt aligned with the jerk samples
 
     rv = ang_vel(raw, dt)          # len n-1
     sv = ang_vel(sm, dt)
-    rj = np.abs(np.diff(rv)) / dt_mid   # raw jerk deg/s^2, len n-2
-    sj = np.abs(np.diff(sv)) / dt_mid   # smoothed jerk
+    rj = jerk(rv, dt_mid)   # raw jerk deg/s^2, len n-2
+    sj = jerk(sv, dt_mid)   # smoothed (out-)jerk
 
     print(f"== {a.csv} : {n} frames, {ts[-1]-ts[0]:.1f}s, "
           f"{'fps='+format(a.fps,'.2f') if a.fps>0 else 'dt from ts'} ==\n")
