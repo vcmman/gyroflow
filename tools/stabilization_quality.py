@@ -98,6 +98,11 @@ def analyze(path, max_frames, width):
     # is a velocity spike => high jerk. RMS so a few big spikes dominate (unlike the mean).
     djerk = np.diff(sv, axis=0)
     jerk = np.sqrt((djerk ** 2).sum(axis=1)) if len(sv) > 1 else np.zeros(0)
+    # flow jerk = RMS of the frame-to-frame change in mean optical-flow magnitude. Mean flow
+    # barely drops with stabilization (pan + scene motion + zoom magnification dominate); the
+    # transient *change* in flow is what a jolt produces, so this is the optical-flow analogue
+    # of shift jerk. Lower = steadier.
+    flow_jerk = np.diff(flows) if len(flows) > 1 else np.zeros(0)
     return {
         "frames": n,
         "itf_db": float(psnrs.mean()),
@@ -107,6 +112,8 @@ def analyze(path, max_frames, width):
         "shift_p95_px": float(np.percentile(shifts, 95)),
         "shift_jerk_px": float(np.sqrt((jerk ** 2).mean())) if len(jerk) else 0.0,
         "flow_px": float(flows.mean()),
+        "flow_p95_px": float(np.percentile(flows, 95)),
+        "flow_jerk_px": float(np.sqrt((flow_jerk ** 2).mean())) if len(flow_jerk) else 0.0,
     }
 
 
@@ -118,7 +125,9 @@ def show(label, r):
           f"({r['shift_pctw']:.3f}% width)  (lower = steadier)")
     print(f"  shift P95 (worst jolts)      : {r['shift_p95_px']:.3f} px   (lower = steadier)")
     print(f"  shift jerk (RMS, transients) : {r['shift_jerk_px']:.3f} px   (lower = steadier) *")
-    print(f"  optical-flow magnitude       : {r['flow_px']:.3f} px     (lower = steadier)")
+    print(f"  optical-flow magnitude       : {r['flow_px']:.3f} px  "
+          f"(P95 {r['flow_p95_px']:.3f})  (lower = steadier)")
+    print(f"  optical-flow jerk (RMS)      : {r['flow_jerk_px']:.3f} px   (lower = steadier) *")
 
 
 def main():
@@ -143,9 +152,10 @@ def main():
         print(f"  ITF P05 (worst)    : {o['itf_p05_db']:.2f} -> {s['itf_p05_db']:.2f} dB "
               f"(+{s['itf_p05_db'] - o['itf_p05_db']:.2f} dB)")
         for key, name in (("shift_px", "phase-corr shift"), ("shift_p95_px", "shift P95"),
-                          ("shift_jerk_px", "shift jerk (RMS)"), ("flow_px", "optical-flow")):
+                          ("shift_jerk_px", "shift jerk (RMS)"), ("flow_px", "optical-flow"),
+                          ("flow_p95_px", "optical-flow P95"), ("flow_jerk_px", "optical-flow jerk")):
             red = 100.0 * (1 - s[key] / o[key]) if o[key] else 0.0
-            tag = "  <- jolt metric" if key == "shift_jerk_px" else ""
+            tag = "  <- jolt metric" if key in ("shift_jerk_px", "flow_jerk_px") else ""
             print(f"  {name:18s} : {o[key]:.3f} -> {s[key]:.3f} px  "
                   f"({red:.1f}% less residual motion){tag}")
 
