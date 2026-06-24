@@ -4,6 +4,9 @@ Find the constant timestamp offset (ms) between an IMU/gyro stream and a camera-
 the two can be aligned for stabilization. Faithful port of Gyroflow's
 `essential_matrix::find_offsets` + `filtering::Lowpass`, plus a higher-precision interpolated mode.
 
+> Need the full reference (every mode/flag, formats, Python API, troubleshooting)? See
+> [`DOCUMENTATION.md`](DOCUMENTATION.md).
+
 ## 1. Install
 
 ```sh

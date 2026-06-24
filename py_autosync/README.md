@@ -12,7 +12,9 @@ modes synthesise the video side from DJI fused quaternions for ground-truthed ac
 (inject a known offset, measure recovery).
 
 **New here? Start with [`QUICKSTART.md`](QUICKSTART.md)** — it covers the production `sync` path,
-input formats, precision modes, deployment limits, and future improvements.
+input formats, precision modes, deployment limits, and future improvements. For the full reference
+(every mode and flag, input/output formats, the Python API, recipes, troubleshooting) see
+[`DOCUMENTATION.md`](DOCUMENTATION.md)（中文：[`DOCUMENTATION.zh-CN.md`](DOCUMENTATION.zh-CN.md)）.
 
 ## Requirements
 
