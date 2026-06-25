@@ -6,7 +6,8 @@ motion and its IMU/gyro stream — the time-alignment half of Gyroflow's sync. F
 and basic visualization.
 
 For the algorithm, parity notes, measured precision and experiment conclusions, see
-[`DESIGN.md`](DESIGN.md).
+[`DESIGN.md`](DESIGN.md). 中文使用文档见 [`USAGE.zh-CN.md`](USAGE.zh-CN.md)（安装、各模式、可视化、
+格式、故障排查、库调用）。
 
 ## Install
 
