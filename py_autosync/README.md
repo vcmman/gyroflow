@@ -71,16 +71,22 @@ derive camera angular velocity with OpenCV, porting Gyroflow's autosync motion p
 
 ```sh
 # Dump omega from a video (round-trips into sync/visualize):
-python3 video_omega.py clip.mp4 --fov-deg 50 > video_omega.csv
+python3 video_omega.py clip.mp4 --lens cam.gyroflow > video_omega.csv
 
 # Or pass the MP4 straight to sync / visualize:
-python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --interp
-python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-focal-px 1800 --out v.png
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-lens cam.gyroflow --interp
+python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --out v.png
 ```
 
-Video flags: `--video-focal-px` or `--video-fov-deg` (intrinsics; mainly affect amplitude, not the
-offset), `--video-every-nth`, `--video-downscale`, `--video-max-frames` (speed). Provide the real
-focal length / FOV when you have it. See `DESIGN.md` for the algorithm and accuracy notes.
+**Lens profile (recommended for real footage).** `--video-lens` / `--lens` takes a Gyroflow
+`.gyroflow` project or lens-profile JSON and uses its camera matrix + **fisheye distortion** for
+undistortion. Wide/action-cam lenses need this — without it the recovered ω is noisy. Otherwise
+intrinsics come from `--video-focal-px` or `--video-fov-deg` (a focal error mostly rescales the
+amplitude, not the offset). Speed: `--video-every-nth`, `--video-downscale`, `--video-max-frames`.
+Axis frame: `--video-orientation` (3-char remap to your IMU frame). See `DESIGN.md` for details.
+
+Verified on real DJI OsmoAction4 4K footage (`test_dji_video.py`): fisheye-undistorted ω tracks the
+IMU at correlation ≈ 0.91 and locks to a stable ~3 ms offset.
 
 ## Input formats
 
@@ -111,6 +117,7 @@ python3 visualize.py --quat ../data/dji_quaternions_full.csv --fps 30 --inject 8
 | `video_omega.py` | MP4 → angular velocity via OpenCV (optical flow + essential matrix). |
 | `gyroflow_autosync.py` | CLI: `sync` / `selftest` / `compare` / `omega`. |
 | `visualize.py` | Basic visualization (cost curve + alignment overlay). |
-| `test_autosync_time.py`, `test_video_omega.py` | Unit tests (core + video). |
+| `test_autosync_time.py`, `test_video_omega.py` | Unit tests (core + synthetic video). |
+| `test_dji_video.py` | End-to-end test on real DJI footage (gated; auto-locates `data/`, skips if absent). |
 | `variance_experiment.py`, `segment_experiment.py`, `segment_stats.py` | Reproduce the precision studies summarized in `DESIGN.md`. |
 | `DESIGN.md` | Algorithm, parity, precision/experiment conclusions, VFR, future work. |

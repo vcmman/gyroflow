@@ -43,12 +43,10 @@ def load_video_signal(path, args):
     import video_omega as vo
     if vo.is_video_path(path):
         print(f"deriving angular velocity from video: {path}", file=sys.stderr)
-        series = vo.video_to_omega(path, focal_px=args.video_focal_px, fov_deg=args.video_fov_deg,
-                                   every_nth=args.video_every_nth, downscale=args.video_downscale,
-                                   max_frames=args.video_max_frames, progress=True)
-        if args.video_orientation:
-            series.w = at.orient_vec(series.w, args.video_orientation)
-        return series
+        return vo.video_to_omega(path, focal_px=args.video_focal_px, fov_deg=args.video_fov_deg,
+                                 lens=args.video_lens, every_nth=args.video_every_nth,
+                                 downscale=args.video_downscale, max_frames=args.video_max_frames,
+                                 orientation=args.video_orientation, progress=True)
     return at.load_motion(path, units=args.units, orientation=args.video_orientation)
 
 
@@ -93,6 +91,8 @@ def main(argv=None) -> int:
     p.add_argument("--gyro", help="sync mode: IMU log (GCSV or angular-velocity CSV)")
     p.add_argument("--video", help="sync mode: camera-motion CSV, or an MP4 (omega derived via OpenCV)")
     # --video-* apply only when --video is a video file (MP4 -> angular velocity).
+    p.add_argument("--video-lens", default=None,
+                   help="video: Gyroflow .gyroflow/lens-profile JSON (camera matrix + distortion)")
     p.add_argument("--video-focal-px", type=float, default=None, help="video: focal length in pixels")
     p.add_argument("--video-fov-deg", type=float, default=None, help="video: horizontal FOV in degrees")
     p.add_argument("--video-every-nth", type=int, default=1, help="video: process every Nth frame")

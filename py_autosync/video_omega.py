@@ -64,7 +64,19 @@ def camera_matrix(width: int, height: int, focal_px: Optional[float] = None,
     return np.array([[focal_px, 0.0, cx], [0.0, focal_px, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
 
 
-def _estimate_rotvec(prev_gray, gray, K, cv2, min_points: int = _MIN_POINTS):
+def _normalize_points(pts, K, dist, fisheye, cv2):
+    """Pixel points (N,2) -> normalized camera coordinates, undistorting if a model is given."""
+    if dist is not None:
+        p = pts.reshape(-1, 1, 2).astype(np.float64)
+        und = (cv2.fisheye.undistortPoints(p, K, dist) if fisheye
+               else cv2.undistortPoints(p, K, dist))
+        return und.reshape(-1, 2)
+    pp = np.array([K[0, 2], K[1, 2]])
+    return (pts - pp) / np.array([K[0, 0], K[1, 1]])
+
+
+def _estimate_rotvec(prev_gray, gray, K, cv2, min_points: int = _MIN_POINTS,
+                     dist=None, fisheye: bool = False):
     """Inter-frame rotation as an axis-angle vector (radians), or None if not estimable."""
     h, w = prev_gray.shape[:2]
     feats = cv2.goodFeaturesToTrack(prev_gray, _MAX_CORNERS, _QUALITY, _MIN_DIST,
@@ -87,10 +99,9 @@ def _estimate_rotvec(prev_gray, gray, K, cv2, min_points: int = _MIN_POINTS):
         return None
     pts1, pts2 = a[keep].astype(np.float64), b[keep].astype(np.float64)
 
-    # Undistort to normalized camera coordinates (no distortion model -> pinhole K^-1).
-    pp = np.array([K[0, 2], K[1, 2]])
-    n1 = (pts1 - pp) / np.array([K[0, 0], K[1, 1]])
-    n2 = (pts2 - pp) / np.array([K[0, 0], K[1, 1]])
+    # Undistort to normalized camera coordinates (fisheye/standard model, or pinhole K^-1).
+    n1 = _normalize_points(pts1, K, dist, fisheye, cv2)
+    n2 = _normalize_points(pts2, K, dist, fisheye, cv2)
 
     I = np.eye(3, dtype=np.float64)
     E, _ = cv2.findEssentialMat(n1, n2, I, method=cv2.LMEDS, prob=0.999,
@@ -116,11 +127,13 @@ def _rotvec_to_omega(rotvec_rad: np.ndarray, dt_s: float, swap_xy: bool) -> np.n
 
 def omega_from_frames(gray_frames, timestamps_ms, K, every_nth: int = 1,
                       swap_xy: bool = True, min_points: int = _MIN_POINTS,
+                      dist=None, fisheye: bool = False,
                       progress: bool = False) -> at.GyroSeries:
     """Angular velocity from an iterable/list of grayscale frames + their timestamps (ms).
 
     ``gray_frames`` may be a list or any sequence of 2-D uint8 arrays. Frames are paired
-    ``i -> i+every_nth``; ω for each pair is timestamped at the pair midpoint. cv2 is imported here.
+    ``i -> i+every_nth``; ω for each pair is timestamped at the pair midpoint. ``dist``/``fisheye``
+    select a distortion model for undistortion. cv2 is imported here.
     """
     import cv2  # lazy
 
@@ -133,7 +146,7 @@ def omega_from_frames(gray_frames, timestamps_ms, K, every_nth: int = 1,
         dt_s = (ts[j] - ts[i]) / 1000.0
         if dt_s <= 1e-9:
             continue
-        rotvec = _estimate_rotvec(frames[i], frames[j], K, cv2, min_points)
+        rotvec = _estimate_rotvec(frames[i], frames[j], K, cv2, min_points, dist, fisheye)
         if rotvec is None:
             continue
         t_out.append(0.5 * (ts[i] + ts[j]))
@@ -146,15 +159,38 @@ def omega_from_frames(gray_frames, timestamps_ms, K, every_nth: int = 1,
     return at.GyroSeries(np.asarray(t_out)[order], np.asarray(w_out)[order])
 
 
+def load_lens_profile(path: str) -> dict:
+    """Read camera intrinsics + distortion from a Gyroflow ``.gyroflow`` project or lens-profile
+    JSON. Returns ``{K, D, calib_w, calib_h, fisheye}``. Gyroflow's default model is OpenCV fisheye
+    (4 distortion coeffs); a profile with no/other coeff count is treated as the standard model.
+    """
+    import json
+    d = json.load(open(path))
+    cal = d.get("calibration_data", d)
+    fp = cal.get("fisheye_params") or d.get("fisheye_params")
+    if not fp or "camera_matrix" not in fp:
+        raise ValueError(f"no camera_matrix/fisheye_params in lens profile: {path}")
+    K = np.array(fp["camera_matrix"], dtype=np.float64)
+    D = np.array(fp["distortion_coeffs"], dtype=np.float64).reshape(-1, 1)
+    dim = cal.get("calib_dimension") or d.get("calib_dimension") or {}
+    cw = float(dim.get("w") or K[0, 2] * 2.0)
+    ch = float(dim.get("h") or K[1, 2] * 2.0)
+    return {"K": K, "D": D, "calib_w": cw, "calib_h": ch, "fisheye": len(D) == 4}
+
+
 def video_to_omega(path: str, focal_px: Optional[float] = None, fov_deg: Optional[float] = None,
-                   every_nth: int = 1, downscale: float = 1.0, max_frames: Optional[int] = None,
-                   start_sec: float = 0.0, swap_xy: bool = True, min_points: int = _MIN_POINTS,
+                   lens: Optional[str] = None, every_nth: int = 1, downscale: float = 1.0,
+                   max_frames: Optional[int] = None, start_sec: float = 0.0, swap_xy: bool = True,
+                   orientation: Optional[str] = None, min_points: int = _MIN_POINTS,
                    progress: bool = False) -> at.GyroSeries:
     """Read an MP4 with OpenCV and return camera angular velocity as a :class:`GyroSeries`.
 
     Real per-frame timestamps come from ``CAP_PROP_POS_MSEC`` (VFR-safe), falling back to
     ``frame_index / fps``. ``downscale`` shrinks frames for speed (K scales with them, so the
-    normalized geometry is unchanged). ``every_nth`` / ``max_frames`` / ``start_sec`` bound the work.
+    normalized geometry is unchanged). ``lens`` is a Gyroflow ``.gyroflow``/lens-profile JSON whose
+    camera matrix + (fisheye) distortion are used for undistortion — strongly recommended for real,
+    wide/fisheye footage. ``orientation`` re-maps the output axes (e.g. to the IMU frame).
+    ``every_nth`` / ``max_frames`` / ``start_sec`` bound the work.
     """
     import cv2  # lazy
 
@@ -186,17 +222,34 @@ def video_to_omega(path: str, focal_px: Optional[float] = None, fov_deg: Optiona
     if len(grays) < 2:
         raise ValueError(f"video had < 2 readable frames: {path}")
     h, w = grays[0].shape[:2]
-    eff_focal = (focal_px / downscale) if (focal_px and downscale > 1.0) else focal_px
-    K = camera_matrix(w, h, eff_focal, fov_deg)
+    if lens:
+        prof = load_lens_profile(lens)
+        scale = w / prof["calib_w"]                      # scale K from calib res to working res
+        K = prof["K"].copy()
+        K[0, 0] *= scale; K[1, 1] *= scale; K[0, 2] *= scale; K[1, 2] *= scale
+        dist, fisheye = prof["D"], prof["fisheye"]
+    else:
+        eff_focal = (focal_px / downscale) if (focal_px and downscale > 1.0) else focal_px
+        K = camera_matrix(w, h, eff_focal, fov_deg)
+        dist, fisheye = None, False
     if progress:
-        print(f"read {len(grays)} frames @ ~{fps:.2f} fps, {w}x{h}, focal_px~{K[0,0]:.1f}",
-              file=sys.stderr)
-    return omega_from_frames(grays, ts_ms, K, every_nth, swap_xy, min_points, progress)
+        model = ("fisheye" if fisheye else "standard") if dist is not None else "pinhole"
+        print(f"read {len(grays)} frames @ ~{fps:.2f} fps, {w}x{h}, focal_px~{K[0,0]:.1f}, "
+              f"{model} lens", file=sys.stderr)
+    series = omega_from_frames(grays, ts_ms, K, every_nth, swap_xy, min_points, dist, fisheye, progress)
+    if orientation and len(series):
+        series.w = at.orient_vec(series.w, orientation)
+    return series
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Estimate camera angular velocity from an MP4 (OpenCV)")
     p.add_argument("video", help="input video file (mp4/mov/mkv/...)")
+    p.add_argument("--lens", default=None,
+                   help="Gyroflow .gyroflow/lens-profile JSON for camera matrix + (fisheye) "
+                        "distortion (recommended for real wide/fisheye footage)")
+    p.add_argument("--orientation", default=None,
+                   help="3-char axis remap of the output omega, e.g. xYZ (to the IMU frame)")
     p.add_argument("--focal-px", type=float, default=None, help="focal length in pixels (original res)")
     p.add_argument("--fov-deg", type=float, default=None, help="horizontal FOV in degrees (if no focal)")
     p.add_argument("--every-nth", type=int, default=1, help="process every Nth frame (speed)")
@@ -208,9 +261,9 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     series = video_to_omega(args.video, focal_px=args.focal_px, fov_deg=args.fov_deg,
-                            every_nth=args.every_nth, downscale=args.downscale,
+                            lens=args.lens, every_nth=args.every_nth, downscale=args.downscale,
                             max_frames=args.max_frames, start_sec=args.start_sec,
-                            swap_xy=not args.no_swap_xy, progress=True)
+                            swap_xy=not args.no_swap_xy, orientation=args.orientation, progress=True)
     if len(series) == 0:
         print("no angular velocity estimated (too little motion / texture?)", file=sys.stderr)
         return 1

@@ -74,6 +74,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Visualize an autosync-time offset estimate")
     p.add_argument("--gyro", help="real mode: IMU log (GCSV or angular-velocity CSV)")
     p.add_argument("--video", help="real mode: camera-motion CSV, or an MP4 (omega via OpenCV)")
+    p.add_argument("--video-lens", default=None, help="video: Gyroflow/lens-profile JSON (intrinsics+distortion)")
     p.add_argument("--video-focal-px", type=float, default=None, help="video: focal length in pixels")
     p.add_argument("--video-fov-deg", type=float, default=None, help="video: horizontal FOV (deg)")
     p.add_argument("--video-every-nth", type=int, default=1, help="video: process every Nth frame")

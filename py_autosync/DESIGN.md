@@ -54,8 +54,8 @@ autosync motion path (`src/core/synchronization/`). Per consecutive (sampled) fr
    Harris off, k 0.04) on the previous frame.
 2. **Track** — `calcOpticalFlowPyrLK` (win 21×21, 3 levels, criteria COUNT+EPS/30/0.01,
    minEigThreshold 1e-4); keep `status==1` points inside both frames; need ≥10.
-3. **Pose** — undistort to normalized camera coords (pinhole `K⁻¹`; no distortion model), then
-   `findEssentialMat(identity K, LMEDS, prob 0.999, threshold 1e-5, maxIters 4000)` and
+3. **Pose** — undistort to normalized camera coords (fisheye/standard model via a lens profile, or
+   pinhole `K⁻¹`), then `findEssentialMat(identity K, LMEDS, prob 0.999, threshold 1e-5, maxIters 4000)` and
    `recoverPose(..., distanceThresh=100000)` (matches Gyroflow's `recover_pose_triangulated`; the
    large threshold is essential — the default rejects low-parallax points on cheirality) → R, ≥10
    inliers.
@@ -64,16 +64,32 @@ autosync motion path (`src/core/synchronization/`). Per consecutive (sampled) fr
    happened *between* the frames). `dt` is the real timestamp gap (VFR-safe), from
    `CAP_PROP_POS_MSEC` with an fps fallback.
 
-**Intrinsics.** `K` comes from `--video-focal-px`, else a horizontal `--video-fov-deg`, else a ~50°
-default. For autosync only the *timing/shape* of the motion matters; a focal-length error mostly
-rescales the amplitude, not the recovered offset.
+**Intrinsics & distortion.** Best: a **lens profile** (`--video-lens` / `--lens`) — a Gyroflow
+`.gyroflow`/lens JSON whose camera matrix + **OpenCV-fisheye** distortion coeffs are used to
+undistort points (`cv2.fisheye.undistortPoints`); `K` is scaled from the profile's calibration
+resolution to the working frame. This matters a lot for wide/action-cam lenses — without it the
+essential matrix sees distorted point motion and ω is noisy. Otherwise `K` comes from
+`--video-focal-px`, a horizontal `--video-fov-deg`, or a ~50° default; a focal error mostly rescales
+the amplitude, not the offset.
+
+**Axis frame.** Output ω is in the OpenCV camera frame with Gyroflow's X/Y swap. To compare against
+a specific IMU, remap with `--video-orientation` (3-char signed permutation). For the bundled DJI
+OsmoAction4 telemetry the mapping is `yXZ` (net `[-x,+y,+z]` on the raw axis-angle), found by a
+signed-permutation correlation sweep against the IMU.
 
 **Accuracy.** The essential-matrix rotation is well-determined in *direction/timing* but its
-*amplitude* is approximate when rotation mixes with low translation (validated: the recovered ω
-series correlates strongly — r≈0.8–0.97 — with a known time-varying camera rotation, while the
-absolute scale carries a mild bias). That is exactly what `find_offset` needs, since it correlates
-the time-shape, not the amplitude. The pose geometry itself is exact (validated on synthetic 3D
-point correspondences). OpenCV is imported lazily, so the rest of the toolkit runs without it.
+*amplitude* is approximate when rotation mixes with low translation (the recovered ω series
+correlates strongly with a known motion — r≈0.8–0.97 — while the absolute scale carries a mild
+bias). That is exactly what `find_offset` needs, since it correlates the time-shape, not the
+amplitude. The pose geometry itself is exact (validated on synthetic 3D point correspondences), and
+the whole path is validated end-to-end on **real DJI OsmoAction4 4K footage** (`test_dji_video.py`):
+fisheye-undistorted ω tracks the IMU at |ω| correlation ≈ 0.91 with a stable ~3 ms offset across
+windows. OpenCV is imported lazily, so the rest of the toolkit runs without it.
+
+**recoverPose note.** Use the `distanceThresh` overload
+(`recoverPose(E, n1, n2, I, distanceThresh=100000)`, matching Gyroflow's `recover_pose_triangulated`):
+the default threshold rejects low-parallax points on the cheirality check and starves the inlier
+count, so real footage returns no estimate without it.
 
 ## 3. Parity contract
 

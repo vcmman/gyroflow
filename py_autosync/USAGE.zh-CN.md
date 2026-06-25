@@ -176,19 +176,36 @@ OpenCV 计算相机角速度**（移植自 Gyroflow 的 autosync：`goodFeatures
 
 ```sh
 # 从视频导出角速度 CSV（可回灌给 sync/visualize）
-python3 video_omega.py clip.mp4 --fov-deg 50 > video_omega.csv
+python3 video_omega.py clip.mp4 --lens cam.gyroflow > video_omega.csv
 
 # 或把 MP4 直接喂给 sync / visualize
-python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --interp
-python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-focal-px 1800 --out v.png
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-lens cam.gyroflow --interp
+python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --out v.png
 ```
 
-视频相关参数：`--video-focal-px` 或 `--video-fov-deg`（相机内参；主要影响幅值，不影响偏移时刻）、
-`--video-every-nth`、`--video-downscale`、`--video-max-frames`（加速）。有真实焦距/FOV 时请填上。
+**镜头配置（真实素材强烈推荐）**：`--video-lens` / `--lens` 接受 Gyroflow 的 `.gyroflow` 工程或
+镜头配置 JSON，用其中的相机矩阵 + **鱼眼畸变系数**做去畸变（`cv2.fisheye.undistortPoints`）。广角/
+运动相机镜头不去畸变会让恢复的角速度很噪。没有配置时用 `--video-focal-px` 或 `--video-fov-deg`
+（焦距误差主要影响幅值，不影响偏移时刻）。加速参数：`--video-every-nth`、`--video-downscale`、
+`--video-max-frames`。坐标轴对齐：`--video-orientation`（3 字符重映射到你的 IMU 帧）。
 
-> **关于精度**：本质矩阵恢复的旋转在**方向/时序上准确**，但当旋转与平移都很小、视差不足时**幅值只是
-> 近似**（实测：恢复的角速度时序与真实相机旋转相关系数 r≈0.8–0.97，绝对幅值有轻微偏差）。这对
-> autosync 完全够用——偏移求解靠的是**时序形状**而非幅值。需要 OpenCV：`pip install opencv-python`。
+> **关于精度**：本质矩阵恢复的旋转在**方向/时序上准确**，但旋转与平移都小、视差不足时**幅值只是近似**
+> （实测相关系数 r≈0.8–0.97，幅值有轻微偏差）。这对 autosync 完全够用——偏移求解靠**时序形状**而非
+> 幅值。需要 OpenCV：`pip install opencv-python`。
+
+#### 用真实 DJI 视频跑测试
+
+`test_dji_video.py` 是一个端到端测试，直接用真实 DJI OsmoAction4 4K 素材验证整条链路（MP4 → 鱼眼
+去畸变光流 + 本质矩阵 → 相机角速度，与 DJI 四元数遥测求出的 IMU 角速度做同步）。数据缺失时**自动跳过**。
+
+```sh
+# 自动在 data/ 目录里找 DJI_*.MP4 + dji_quaternions_full.csv + *.gyroflow；或用环境变量指定：
+DJI_VIDEO=/path/DJI_xxxx.MP4 DJI_QUAT=/path/dji_quaternions_full.csv \
+DJI_LENS=/path/xxxx.gyroflow python3 test_dji_video.py
+```
+
+实测：鱼眼去畸变后，视频角速度与 IMU 的 |ω| 相关系数 ≈ 0.91，多窗口稳定锁定在约 3 ms 偏移。
+该素材的坐标轴映射为 `--video-orientation yXZ`（DJI OsmoAction4，遥测帧）。
 
 ## 7. 精度模式怎么选
 
@@ -211,6 +228,7 @@ python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-focal-px 1800 --ou
 | `--units deg\|rad` | `deg` | sync/visualize | 列名推断不出单位时使用 |
 | `--gyro-orientation STR` | 无 | sync/visualize | IMU 信号 3 字符轴重映射，如 `xzY` |
 | `--video-orientation STR` | 无 | sync/visualize | 相机信号 3 字符轴重映射 |
+| `--video-lens PATH` | 无 | sync/visualize（MP4） | Gyroflow/镜头配置 JSON（相机矩阵+鱼眼畸变），推荐 |
 | `--video-focal-px FLOAT` | 无 | sync/visualize（MP4） | 视频焦距（像素），不填则用 FOV/默认 |
 | `--video-fov-deg FLOAT` | 无 | sync/visualize（MP4） | 视频水平 FOV（度） |
 | `--video-every-nth INT` | `1` | sync/visualize（MP4） | 每隔 N 帧处理一次（加速） |
