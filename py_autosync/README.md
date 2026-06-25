@@ -19,7 +19,9 @@ python3 test_autosync_time.py      # 8 tests, all should print OK
 ## Quick use
 
 ```sh
-# Production: sync two real signals (IMU GCSV + camera-motion CSV) -> offset in ms
+# Production: sync an IMU log against a video. --video accepts a camera-motion CSV OR an MP4
+# (angular velocity is derived from the MP4 with OpenCV, the way Gyroflow's autosync does):
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --interp-parabolic
 python3 gyroflow_autosync.py sync --gyro imu.gcsv --video camera_motion.csv --interp-parabolic
 
 # Visualize the estimate (cost curve + alignment overlay) -> PNG
@@ -60,6 +62,26 @@ Common flags: `--search` (search half-width ms), `--initial`, `--lpf` (Hz), `--i
 On a 200 Hz IMU the default carries a ~+1.5 ms quantization bias; `--interp-parabolic` removes it
 (recovers 8.494 ms vs a true 8.5 ms). See `DESIGN.md` for the full measured numbers.
 
+## Video input (MP4 → angular velocity)
+
+`--video` (in `sync` and `visualize.py`) and the standalone `video_omega.py` accept a video file and
+derive camera angular velocity with OpenCV, porting Gyroflow's autosync motion path:
+`goodFeaturesToTrack` → `calcOpticalFlowPyrLK` → undistort → `findEssentialMat` (LMEDS) →
+`recoverPose` → `rotvec / dt` (X/Y swapped, deg/s, timestamped at frame-pair midpoints).
+
+```sh
+# Dump omega from a video (round-trips into sync/visualize):
+python3 video_omega.py clip.mp4 --fov-deg 50 > video_omega.csv
+
+# Or pass the MP4 straight to sync / visualize:
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --interp
+python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-focal-px 1800 --out v.png
+```
+
+Video flags: `--video-focal-px` or `--video-fov-deg` (intrinsics; mainly affect amplitude, not the
+offset), `--video-every-nth`, `--video-downscale`, `--video-max-frames` (speed). Provide the real
+focal length / FOV when you have it. See `DESIGN.md` for the algorithm and accuracy notes.
+
 ## Input formats
 
 - **Generic angular-velocity CSV** (`--gyro`/`--video`): a header naming a timestamp column
@@ -86,8 +108,9 @@ python3 visualize.py --quat ../data/dji_quaternions_full.csv --fps 30 --inject 8
 | File | Role |
 |------|------|
 | `autosync_time.py` | Core library: quaternion helpers, `Lowpass`, ω derivation, `find_offset`, `cost_curve`, loaders. |
+| `video_omega.py` | MP4 → angular velocity via OpenCV (optical flow + essential matrix). |
 | `gyroflow_autosync.py` | CLI: `sync` / `selftest` / `compare` / `omega`. |
 | `visualize.py` | Basic visualization (cost curve + alignment overlay). |
-| `test_autosync_time.py` | Unit tests. |
+| `test_autosync_time.py`, `test_video_omega.py` | Unit tests (core + video). |
 | `variance_experiment.py`, `segment_experiment.py`, `segment_stats.py` | Reproduce the precision studies summarized in `DESIGN.md`. |
 | `DESIGN.md` | Algorithm, parity, precision/experiment conclusions, VFR, future work. |

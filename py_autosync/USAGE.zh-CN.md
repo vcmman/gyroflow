@@ -26,11 +26,11 @@
 给定**两路测量同一段旋转运动的角速度信号**——一路来自相机（光流 / `estimated_gyro` / 另一个陀
 螺仪），一路来自 IMU——本工具求出让两者最佳对齐的那个**恒定时间平移量**（即偏移 `offset_ms`）。
 
-- **它不解码视频**：相机侧运动需以角速度形式提供。若手头只有相机姿态四元数（如 DJI），可先用
-  `omega` 模式转成角速度。
+- **相机侧运动**可以三种方式提供：角速度 CSV、相机姿态四元数（用 `omega` 模式转），或**直接给
+  MP4 视频**——工具会用 OpenCV 从视频估计角速度（见 §6 的“MP4 视频”）。
 - **偏移符号约定**：`offset_ms` 表示 **IMU 在 `相机时间 − offset_ms` 处采样**，与 Gyroflow 一致。
 
-适用：离线批量求时间同步偏移；评估同步精度；把四元数姿态转角速度。
+适用：离线批量求时间同步偏移；评估同步精度；从 MP4 估计相机角速度；把四元数姿态转角速度。
 不适用：估计时钟漂移（offset + 斜率）；处理低于约 3 deg/s 激励的弱运动片段（结果不可靠，会告警）。
 
 ## 2. 安装
@@ -167,6 +167,29 @@ telemetry-parser / Gyroflow 输出的 IMU 日志：先是元数据块，再是 `
 > 先用 `--gyro-orientation` / `--video-orientation`（3 字符映射，大写保留、小写取负，如 `xzY`）对齐，
 > 否则可能锁不上。
 
+### MP4 视频（`--video` 直接给视频文件）
+
+`sync` 和 `visualize.py` 的 `--video`、以及独立工具 `video_omega.py`，都能**直接读 MP4 并用
+OpenCV 计算相机角速度**（移植自 Gyroflow 的 autosync：`goodFeaturesToTrack` → `calcOpticalFlowPyrLK`
+→ 去畸变归一化 → `findEssentialMat`(LMEDS) → `recoverPose` → `rotvec / dt`，并按 Gyroflow 约定
+交换 X/Y、转 deg/s、时间戳取相邻帧中点）。
+
+```sh
+# 从视频导出角速度 CSV（可回灌给 sync/visualize）
+python3 video_omega.py clip.mp4 --fov-deg 50 > video_omega.csv
+
+# 或把 MP4 直接喂给 sync / visualize
+python3 gyroflow_autosync.py sync --gyro imu.gcsv --video clip.mp4 --video-fov-deg 50 --interp
+python3 visualize.py --gyro imu.gcsv --video clip.mp4 --video-focal-px 1800 --out v.png
+```
+
+视频相关参数：`--video-focal-px` 或 `--video-fov-deg`（相机内参；主要影响幅值，不影响偏移时刻）、
+`--video-every-nth`、`--video-downscale`、`--video-max-frames`（加速）。有真实焦距/FOV 时请填上。
+
+> **关于精度**：本质矩阵恢复的旋转在**方向/时序上准确**，但当旋转与平移都很小、视差不足时**幅值只是
+> 近似**（实测：恢复的角速度时序与真实相机旋转相关系数 r≈0.8–0.97，绝对幅值有轻微偏差）。这对
+> autosync 完全够用——偏移求解靠的是**时序形状**而非幅值。需要 OpenCV：`pip install opencv-python`。
+
 ## 7. 精度模式怎么选
 
 | 模式 | 参数 | 说明 |
@@ -188,6 +211,11 @@ telemetry-parser / Gyroflow 输出的 IMU 日志：先是元数据块，再是 `
 | `--units deg\|rad` | `deg` | sync/visualize | 列名推断不出单位时使用 |
 | `--gyro-orientation STR` | 无 | sync/visualize | IMU 信号 3 字符轴重映射，如 `xzY` |
 | `--video-orientation STR` | 无 | sync/visualize | 相机信号 3 字符轴重映射 |
+| `--video-focal-px FLOAT` | 无 | sync/visualize（MP4） | 视频焦距（像素），不填则用 FOV/默认 |
+| `--video-fov-deg FLOAT` | 无 | sync/visualize（MP4） | 视频水平 FOV（度） |
+| `--video-every-nth INT` | `1` | sync/visualize（MP4） | 每隔 N 帧处理一次（加速） |
+| `--video-downscale FLOAT` | `1.0` | sync/visualize（MP4） | 帧缩小倍数（加速） |
+| `--video-max-frames INT` | 无 | sync/visualize（MP4） | 最多处理 N 帧 |
 | `--fps FLOAT` | `30` | selftest/compare/visualize | 合成视频帧率 |
 | `--search FLOAT` | `200` | 所有偏移模式 | 偏移搜索半宽（ms），必须大于真实偏移 |
 | `--initial FLOAT` | `0` | 所有偏移模式 | 粗略起始偏移（ms），有先验时填 |

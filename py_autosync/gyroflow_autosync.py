@@ -37,6 +37,21 @@ def _frame_timestamps(a: float, b: float, fps: float) -> np.ndarray:
     return a + np.arange(n) * dt
 
 
+def load_video_signal(path, args):
+    """Load the camera-side motion: derive omega from an MP4 (OpenCV) if `path` is a video,
+    otherwise read it as an angular-velocity CSV/GCSV. Shared by sync mode and visualize.py."""
+    import video_omega as vo
+    if vo.is_video_path(path):
+        print(f"deriving angular velocity from video: {path}", file=sys.stderr)
+        series = vo.video_to_omega(path, focal_px=args.video_focal_px, fov_deg=args.video_fov_deg,
+                                   every_nth=args.video_every_nth, downscale=args.video_downscale,
+                                   max_frames=args.video_max_frames, progress=True)
+        if args.video_orientation:
+            series.w = at.orient_vec(series.w, args.video_orientation)
+        return series
+    return at.load_motion(path, units=args.units, orientation=args.video_orientation)
+
+
 def _run_sync(args, interp: bool, parabolic: bool) -> int:
     """Sync two real angular-velocity signals (production path on real footage)."""
     if not args.gyro or not args.video:
@@ -44,7 +59,7 @@ def _run_sync(args, interp: bool, parabolic: bool) -> int:
         return 2
 
     gyro = at.load_motion(args.gyro, units=args.units, orientation=args.gyro_orientation)
-    video = at.load_motion(args.video, units=args.units, orientation=args.video_orientation)
+    video = load_video_signal(args.video, args)
     gyro_rate = at.estimate_sample_rate_hz(gyro)
     video_rate = at.estimate_sample_rate_hz(video)
 
@@ -76,7 +91,13 @@ def main(argv=None) -> int:
     p.add_argument("mode", choices=["sync", "selftest", "compare", "omega"])
     p.add_argument("--quat", help="DJI quaternion CSV (selftest/compare/omega modes)")
     p.add_argument("--gyro", help="sync mode: IMU log (GCSV or angular-velocity CSV)")
-    p.add_argument("--video", help="sync mode: camera-motion angular-velocity CSV")
+    p.add_argument("--video", help="sync mode: camera-motion CSV, or an MP4 (omega derived via OpenCV)")
+    # --video-* apply only when --video is a video file (MP4 -> angular velocity).
+    p.add_argument("--video-focal-px", type=float, default=None, help="video: focal length in pixels")
+    p.add_argument("--video-fov-deg", type=float, default=None, help="video: horizontal FOV in degrees")
+    p.add_argument("--video-every-nth", type=int, default=1, help="video: process every Nth frame")
+    p.add_argument("--video-downscale", type=float, default=1.0, help="video: shrink frames by factor")
+    p.add_argument("--video-max-frames", type=int, default=None, help="video: stop after N frames")
     p.add_argument("--units", choices=["deg", "rad"], default="deg",
                    help="sync mode: angular-velocity units when not inferable from column names")
     p.add_argument("--gyro-orientation", default=None,

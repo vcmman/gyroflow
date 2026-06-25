@@ -45,6 +45,36 @@ both `find_offset` (the search) and `cost_curve` (visualization) call it, so the
 *identical* cost. Loaders (`load_gcsv`, `load_angular_velocity_csv`, `load_motion`) normalize any
 input to deg/s with ms timestamps re-based to 0.
 
+## 2b. Camera angular velocity from video (`video_omega.py`)
+
+The camera-side ω can be derived from an MP4 instead of supplied as a CSV, porting Gyroflow's
+autosync motion path (`src/core/synchronization/`). Per consecutive (sampled) frame pair:
+
+1. **Features** — `goodFeaturesToTrack` (maxCorners 200, quality 0.01, minDist 10, blockSize 3,
+   Harris off, k 0.04) on the previous frame.
+2. **Track** — `calcOpticalFlowPyrLK` (win 21×21, 3 levels, criteria COUNT+EPS/30/0.01,
+   minEigThreshold 1e-4); keep `status==1` points inside both frames; need ≥10.
+3. **Pose** — undistort to normalized camera coords (pinhole `K⁻¹`; no distortion model), then
+   `findEssentialMat(identity K, LMEDS, prob 0.999, threshold 1e-5, maxIters 4000)` and
+   `recoverPose(..., distanceThresh=100000)` (matches Gyroflow's `recover_pose_triangulated`; the
+   large threshold is essential — the default rejects low-parallax points on cheirality) → R, ≥10
+   inliers.
+4. **ω** — `rotvec = axisAngle(R) / dt`, then **swap X/Y** and convert to deg/s (the exact
+   convention of Gyroflow's `estimated_gyro`), timestamped at the **frame-pair midpoint** (the motion
+   happened *between* the frames). `dt` is the real timestamp gap (VFR-safe), from
+   `CAP_PROP_POS_MSEC` with an fps fallback.
+
+**Intrinsics.** `K` comes from `--video-focal-px`, else a horizontal `--video-fov-deg`, else a ~50°
+default. For autosync only the *timing/shape* of the motion matters; a focal-length error mostly
+rescales the amplitude, not the recovered offset.
+
+**Accuracy.** The essential-matrix rotation is well-determined in *direction/timing* but its
+*amplitude* is approximate when rotation mixes with low translation (validated: the recovered ω
+series correlates strongly — r≈0.8–0.97 — with a known time-varying camera rotation, while the
+absolute scale carries a mild bias). That is exactly what `find_offset` needs, since it correlates
+the time-shape, not the amplitude. The pose geometry itself is exact (validated on synthetic 3D
+point correspondences). OpenCV is imported lazily, so the rest of the toolkit runs without it.
+
 ## 3. Parity contract
 
 The default `nearest` path is line-for-line faithful: 1 ms coarse sweep → 0.01 ms refine over ±2 ms,

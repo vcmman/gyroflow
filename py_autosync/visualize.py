@@ -31,6 +31,7 @@ matplotlib.use("Agg")  # headless: render straight to a file
 import matplotlib.pyplot as plt
 
 import autosync_time as at
+import video_omega as vo
 
 
 def _magnitude(w: np.ndarray) -> np.ndarray:
@@ -61,16 +62,23 @@ def _load_inputs(args):
         video = at.resample_angular_velocity(gyro, fts - args.inject)
         video.t = fts.copy()
         return video, gyro, args.fps, gyro_rate, args.inject, f"synthetic (quat, {args.fps:g} fps)"
+    import gyroflow_autosync as ga
     gyro = at.load_motion(args.gyro, units=args.units, orientation=args.gyro_orientation)
-    video = at.load_motion(args.video, units=args.units, orientation=args.video_orientation)
+    video = ga.load_video_signal(args.video, args)  # CSV/GCSV, or MP4 -> omega via OpenCV
+    title = "video (MP4) vs gyro" if vo.is_video_path(args.video) else "real signals"
     return (video, gyro, at.estimate_sample_rate_hz(video), at.estimate_sample_rate_hz(gyro),
-            None, "real signals")
+            None, title)
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Visualize an autosync-time offset estimate")
     p.add_argument("--gyro", help="real mode: IMU log (GCSV or angular-velocity CSV)")
-    p.add_argument("--video", help="real mode: camera-motion angular-velocity CSV")
+    p.add_argument("--video", help="real mode: camera-motion CSV, or an MP4 (omega via OpenCV)")
+    p.add_argument("--video-focal-px", type=float, default=None, help="video: focal length in pixels")
+    p.add_argument("--video-fov-deg", type=float, default=None, help="video: horizontal FOV (deg)")
+    p.add_argument("--video-every-nth", type=int, default=1, help="video: process every Nth frame")
+    p.add_argument("--video-downscale", type=float, default=1.0, help="video: shrink frames by factor")
+    p.add_argument("--video-max-frames", type=int, default=None, help="video: stop after N frames")
     p.add_argument("--quat", help="synthetic mode: DJI quaternion CSV")
     p.add_argument("--fps", type=float, default=30.0, help="synthetic mode: video frame rate")
     p.add_argument("--inject", type=float, default=8.5, help="synthetic mode: injected offset (ms)")
