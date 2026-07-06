@@ -256,7 +256,8 @@ Renders: `{0001,0002}_D_cpp_stabilized_dcr_la1.mp4` in `dji6_L/run/cpp_out/`.
 Full 4K renders of dji6_L clips **0001** (2312 f) and **0002** (1487 f) under five configs —
 `default` (offline), `DCR` (offline), `L1`, `DCR off + 1 s look-ahead` (`la1`), `DCR + 1 s`
 (`dcr_la1`) — evaluated on two image-domain metrics. Tools:
-`tools/{vertical_flow_compare,black_border_stats,zoom_vs_maxzoom}.py`.
+`tools/{vertical_flow_compare,black_border_stats,zoom_vs_maxzoom}.py`; figures and the exact
+reproduce commands are in [`figures/README.md`](figures/README.md).
 
 **8a. Vertical shake (phaseCorrelate global `dy`, RMS px @640-wide):**
 
