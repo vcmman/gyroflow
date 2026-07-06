@@ -27,6 +27,27 @@ the **rotational** domain (see §3).
 
 ---
 
+## Primer: forward/backward slerp EMA
+
+`slerp(a, b, t)` is spherical linear interpolation — the constant-speed geodesic between two unit
+quaternions, `t∈[0,1]` (`t=0`→a, `t=1`→b). The smoother is a one-pole exponential moving average
+built from it:
+
+- **Forward pass (causal):** `q_fwd[i] = slerp(q_fwd[i-1], raw[i], α_i)` — the quaternion analog
+  of `y[i] = (1-α)·y[i-1] + α·x[i]`. Small α = heavy smoothing (long time constant), α=1 = follow
+  raw. Time constant: `α = 1 - exp(-Δt/τ)`. This pass **lags** (trails the true motion).
+- **Backward pass:** the same EMA run in reverse over the forward result,
+  `q_out[i] = slerp(q_out[i+1], q_fwd[i], α_i)`. Its lag cancels the forward pass's lag →
+  **zero net phase**, and the filter order doubles (sharper roll-off). Quaternion "filtfilt".
+- Net two-sided weighting is symmetric `exp(-|Δt|/τ)`, centered on each sample.
+
+`default_algo` makes α_i **velocity-adaptive** (τ interpolated between 1 s at low velocity and
+0.1 s at high velocity) and runs the whole thing twice (velocity pass + distance pass). **DCR
+gates the velocity that sets α_i.** Only the **backward pass** needs future data — the crux of the
+real-time discussion in §7.
+
+---
+
 ## 1. DCR gating (implemented)
 
 **Problem in the stock algorithm.** `default_algo` is a velocity-adaptive two-pass EMA: alpha
@@ -172,6 +193,48 @@ sub-Hz bob) ; L1-optimal (nonlinear + crop-aware) is the highest ceiling.
 
 ---
 
+## 7. Real-time / in-camera realizability (1 s look-ahead)
+
+All numbers above are **offline**: full-clip, unlimited bidirectional look-ahead, zero-phase. An
+in-camera implementation only buffers ≈**1 s of future** to run the backward pass (see Primer),
+which caps the effective symmetric half-width at ~1 s. How much this hurts depends on how much
+future each method needs:
+
+| method | future needed | within 1 s? |
+|---|---|---|
+| DCR (window 0.5 s → ±0.25 s) | ~0.25 s | ✅ realizable as-measured |
+| default EMA velocity pass (τ=0.1 s) | ~0.3 s | ✅ ≈ offline |
+| default EMA main low-pass (τ=1 s) | backward truncated to 1 s ≈ 1τ | ⚠️ only ~63% settled |
+| fixed Gaussian σ=24.8 fr (0001 win) | ±3σ ≈ ±2.5 s | ❌ not realizable |
+| fixed Gaussian σ=10.9 fr (0002) | ±3σ ≈ ±1.1 s | ⚠️ borderline |
+| L1-optimal (global solve) | whole clip | ❌ → receding-horizon, weaker |
+
+**Correct real-time bidirectional EMA.** Past is effectively unlimited (carried as O(1) forward
+state — do NOT truncate it to 1 s); only the future is capped. It is **not** "past 1 s + future
+1 s" — truncating the past discards free information and weakens the result.
+1. Forward pass runs causally on every captured frame (full history in one running state).
+2. For the output sample (1 s behind live), run the backward pass over just the 1 s buffer,
+   seeded with the forward value at the newest buffered frame:
+   `q_back = q_fwd[t+1s]; for k=t+1s-1..t: q_back = slerp(q_back, q_fwd[k], α_k); emit q_back`.
+   Output lags live by the 1 s look-ahead.
+
+**Physical limit.** To symmetrically smooth frequency f you need ≳ half a period of future. The
+0.54 Hz bob (0002) has a half-period ≈ 0.93 s → 1 s look-ahead is right at the edge; anything
+below ~0.5 Hz cannot be smoothed well in-camera by any algorithm.
+
+**Effect on the conclusions:**
+- **Robust:** DCR (fits in 1 s) and the translational-parallax ceiling (§3, independent of
+  filtering) stand unchanged. Under the real constraint DCR is *relatively more attractive* —
+  cheap and look-ahead-light.
+- **Weakened:** the "fixed Gaussian dominates" (§6) and "L1 highest ceiling" (§5) results assumed
+  >1 s look-ahead; truncated to 1 s they lose most of their low-frequency advantage. The offline
+  numbers are optimistic upper bounds, not in-camera achievable. To make τ=1 s smoothing settle
+  in-camera you'd need ~3 s look-ahead, or lower max_smoothness to ≤~0.3 s (so 1 s ≈ 3τ).
+- **Implementation caveat:** default_algo's distance (second) pass normalizes by a **global** max
+  over the clip — non-causal; in-camera replace with a rolling-window max.
+
+---
+
 ## Bottom line & next steps
 
 - **DCR is a correct rotational-domain improvement** (merged): −45…75% vertical bob, roll bob too,
@@ -184,12 +247,18 @@ sub-Hz bob) ; L1-optimal (nonlinear + crop-aware) is the highest ceiling.
   on a real render (numbers here are a 30 Hz telemetry proxy).
 - **Explicit jerk-limiting (L1)** helps a little more on transient-rich clips but mostly duplicates
   DCR's gain and costs more crop unless mean-fov-matched.
+- **Real-time caveat (§7):** the offline numbers assume unlimited look-ahead. An in-camera 1 s
+  future buffer caps symmetric smoothing at ~1 s — DCR stays realizable, but the Gaussian and L1
+  advantages shrink (they need >1 s future). Use **full-past forward + 1 s backward**, not a
+  symmetric ±1 s window.
 
 ### Candidate work items
 1. Translation-domain residual stabilization (the actual visible-float fix).
 2. Port a Gaussian (or linear-phase) base kernel as an alternative smoother; re-measure on renders.
 3. Mean-fov-matched L1 vs DCR vs Gaussian comparison (telemetry-fast).
 4. Add a jerk-RMS metric to `stabilization_quality.py`.
+5. Re-run §5/§6 under a 1 s-look-ahead cap (truncated backward pass / receding-horizon) for
+   in-camera-achievable numbers.
 
 ### Reproduce
 ```sh
