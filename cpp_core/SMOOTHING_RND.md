@@ -222,10 +222,26 @@ state — do NOT truncate it to 1 s); only the future is capped. It is **not** "
 0.54 Hz bob (0002) has a half-period ≈ 0.93 s → 1 s look-ahead is right at the edge; anything
 below ~0.5 Hz cannot be smoothed well in-camera by any algorithm.
 
+**Measured — DCR-EMA offline vs a real 1 s look-ahead** (`--look-ahead 1.0`, which windows the
+main adaptive backward pass; forward pass stays full-past). Pitch:
+
+| metric | 0001 offline→1s | 0002 offline→1s |
+|---|---|---|
+| bob 0.5–5 Hz ° | 0.284→0.276 (**−3%**) | 0.261→0.253 (**−3%**) |
+| jerk °/s³ | 126→126 (~0%) | 178→181 (+1.7%) |
+| mean fov | 0.932→0.937 | 0.912→0.919 |
+| max local pitch Δ | 0.74° | 0.49° |
+
+**DCR-EMA loses almost nothing at 1 s look-ahead.** Its benefit is keeping the filter *tight*
+through the reciprocating bob (1–2 Hz), which a 1 s backward window resolves fully; the τ=1 s
+truncation only mildly perturbs the *slow intentional following* (the ~0.5–0.7° local diffs + a
+touch less crop), not bob rejection or jerk. So DCR-EMA is essentially in-camera-realizable.
+Renders: `{0001,0002}_D_cpp_stabilized_dcr_la1.mp4` in `dji6_L/run/cpp_out/`.
+
 **Effect on the conclusions:**
-- **Robust:** DCR (fits in 1 s) and the translational-parallax ceiling (§3, independent of
-  filtering) stand unchanged. Under the real constraint DCR is *relatively more attractive* —
-  cheap and look-ahead-light.
+- **Robust:** DCR (fits in 1 s — measured −3% bob, ~0% jerk vs offline) and the
+  translational-parallax ceiling (§3, independent of filtering) stand unchanged. Under the real
+  constraint DCR is *relatively more attractive* — cheap and look-ahead-light.
 - **Weakened:** the "fixed Gaussian dominates" (§6) and "L1 highest ceiling" (§5) results assumed
   >1 s look-ahead; truncated to 1 s they lose most of their low-frequency advantage. The offline
   numbers are optimistic upper bounds, not in-camera achievable. To make τ=1 s smoothing settle

@@ -43,6 +43,17 @@ struct DefaultAlgoParams {
     bool dcr = false;
     double dcr_window_s = 0.5;  // sliding window length (seconds) for the consistency estimate
     double dcr_power = 1.0;     // gate = DCR^dcr_power; >1 sharpens, <1 softens the gating
+
+    // --- Finite look-ahead (in-camera realizability) ---------------------------------------
+    // The forward/backward slerp EMA is zero-phase only with unlimited future. A real-time
+    // in-camera implementation buffers just this many seconds of future to run the backward
+    // pass. When > 0, the (acausal) backward pass of the main adaptive smoothing is limited to
+    // a window of look_ahead_s of future (seeded at the newest buffered frame); the forward
+    // pass stays causal over the full past. 0 (default) = offline / unlimited => bit-identical.
+    // Only the scalar path is affected; the velocity/distance sub-smoothings (tau=0.1 s) and
+    // their normalisation maxes are left global (their finite-look-ahead error is negligible at
+    // 1 s >> 0.3 s). See cpp_core/SMOOTHING_RND.md §7.
+    double look_ahead_s = 0.0;
 };
 
 // Phase 1 port of Gyroflow's "Default" smoothing algorithm (non-per-axis path, no

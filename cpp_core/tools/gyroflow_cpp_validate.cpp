@@ -40,6 +40,7 @@ int main(int argc, char** argv) {
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
+    double look_ahead = 0.0;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -57,6 +58,7 @@ int main(int argc, char** argv) {
         else if (a == "--dcr") dcr = true;
         else if (a == "--dcr-window") dcr_window = std::stod(next("--dcr-window"));
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
+        else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -115,6 +117,7 @@ int main(int argc, char** argv) {
     sp.dcr = dcr;
     sp.dcr_window_s = dcr_window;
     sp.dcr_power = dcr_power;
+    sp.look_ahead_s = look_ahead;
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Adaptive FOVs over [0, frames), at ts = frame*1000/fps (Gyroflow convention).

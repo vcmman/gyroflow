@@ -65,6 +65,8 @@ void usage(const char* prog) {
               << "                 [--per-axis --smoothness-pitch/-yaw/-roll 0..1]\n"
               << "                 [--dcr [--dcr-window 0.5] [--dcr-power 1.0]]"
               << "  (direction-consistency gate; keeps smoothing on reciprocating shake)\n"
+              << "                 [--look-ahead 0]  (>0 = in-camera finite future buffer, s;"
+              << " 0 = offline)\n"
               << "  Framing:       [--keep-sensor] [--output-size WxH]"
               << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
@@ -86,6 +88,7 @@ int main(int argc, char** argv) {
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
+    double look_ahead = 0.0;   // 0 = offline; >0 = in-camera finite look-ahead (s)
     long max_frames = 0;
     int threads = 0;
 
@@ -125,6 +128,7 @@ int main(int argc, char** argv) {
         else if (a == "--dcr") dcr = true;
         else if (a == "--dcr-window") dcr_window = std::stod(next("--dcr-window"));
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
+        else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -216,11 +220,14 @@ int main(int argc, char** argv) {
     sp.dcr = dcr;
     sp.dcr_window_s = dcr_window;
     sp.dcr_power = dcr_power;
+    sp.look_ahead_s = look_ahead;
     std::cout << "Smoothing " << meta.quaternions.size() << " quaternions (diag FOV "
               << sp.camera_diagonal_fov << " deg"
               << (dcr ? (", DCR gate on (window " + std::to_string(dcr_window) + " s, power " +
                          std::to_string(dcr_power) + ")")
                       : std::string())
+              << (look_ahead > 0.0 ? (", look-ahead " + std::to_string(look_ahead) + " s (in-camera)")
+                                   : std::string(", offline (unlimited look-ahead)"))
               << ")...\n";
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 

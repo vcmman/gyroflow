@@ -305,21 +305,33 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
     if (p.dcr) applyDcrScalar(quats, velocity, sample_rate, p);
 
     // ---- first plain-3D pass with velocity-adaptive alpha ----
+    // look_ahead_s > 0 limits the (acausal) backward pass to a finite future window, modelling
+    // an in-camera implementation with only that much look-ahead buffered. The forward pass is
+    // causal and unchanged (full past). W >= n reproduces the offline (unlimited) sweep.
+    const long W = p.look_ahead_s > 0.0
+                       ? std::max<long>(1, std::lround(p.look_ahead_s * sample_rate))
+                       : 0;
+    auto alpha_of = [&](double r) {
+        return std::min(alpha_smoothness * (1.0 - r) + alpha_0_1s * r, 1.0);
+    };
     auto adaptive_pass = [&](const std::vector<Quaternion>& in,
                              const std::vector<double>& ratio) {
         std::vector<Quaternion> fwd(n);
         Quaternion q = in.front();
-        for (std::size_t i = 0; i < n; ++i) {
-            const double val = alpha_smoothness * (1.0 - ratio[i]) + alpha_0_1s * ratio[i];
-            q = slerp(q, in[i], std::min(val, 1.0));
-            fwd[i] = q;
-        }
+        for (std::size_t i = 0; i < n; ++i) { q = slerp(q, in[i], alpha_of(ratio[i])); fwd[i] = q; }
         std::vector<Quaternion> out(n);
-        q = fwd.back();
-        for (std::size_t i = n; i-- > 0;) {
-            const double val = alpha_smoothness * (1.0 - ratio[i]) + alpha_0_1s * ratio[i];
-            q = slerp(q, fwd[i], std::min(val, 1.0));
-            out[i] = q;
+        if (W <= 0 || static_cast<std::size_t>(W) >= n) {
+            q = fwd.back();
+            for (std::size_t i = n; i-- > 0;) { q = slerp(q, fwd[i], alpha_of(ratio[i])); out[i] = q; }
+        } else {
+            // finite look-ahead: for each output i, seed the backward accumulator at the newest
+            // buffered forward value fwd[i+W] and sweep back down to i.
+            for (std::size_t i = 0; i < n; ++i) {
+                const std::size_t j0 = std::min(i + static_cast<std::size_t>(W), n - 1);
+                Quaternion qb = fwd[j0];
+                for (std::size_t j = j0; j-- > i;) qb = slerp(qb, fwd[j], alpha_of(ratio[j]));
+                out[i] = qb;
+            }
         }
         return out;
     };
