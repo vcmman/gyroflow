@@ -27,6 +27,22 @@ struct DefaultAlgoParams {
     // Camera diagonal FOV in degrees; fov_ratio = camera_diagonal_fov / 120.
     // Compute as 2*atan(diag/(2*fy))*180/PI (see compute_params.rs::calculate_camera_fovs).
     double camera_diagonal_fov = 120.0;
+
+    // --- Direction-Consistency-Ratio (DCR) gating -----------------------------------------
+    // Not part of upstream Gyroflow. The stock velocity-dampening loosens smoothing whenever
+    // the angular *speed* (an abs magnitude) is high, so it cannot tell a sustained pan
+    // (consistent direction — should loosen and follow) from a reciprocating shake such as a
+    // running "bob" (alternating direction — should stay strongly smoothed). DCR restores that
+    // distinction: over a sliding window it measures direction consistency
+    //     DCR = |mean(omega)| / mean(|omega|)  in [0,1]
+    // (per euler axis in the per_axis path; the 3-D rotation-vector analogue
+    //  ||sum(omega_vec)|| / sum(||omega_vec||) in the scalar path) and multiplies the
+    // normalized velocity ratio by DCR^dcr_power. So the filter only loosens when the motion
+    // is both fast AND directionally consistent; oscillation (DCR->0) keeps full smoothing.
+    // dcr == false (default) leaves both paths bit-identical => golden parity preserved.
+    bool dcr = false;
+    double dcr_window_s = 0.5;  // sliding window length (seconds) for the consistency estimate
+    double dcr_power = 1.0;     // gate = DCR^dcr_power; >1 sharpens, <1 softens the gating
 };
 
 // Phase 1 port of Gyroflow's "Default" smoothing algorithm (non-per-axis path, no

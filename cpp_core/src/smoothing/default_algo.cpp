@@ -64,6 +64,87 @@ namespace {
 
 using V3 = std::array<double, 3>;
 
+// --- Direction-Consistency-Ratio (DCR) gating -------------------------------------------
+// See DefaultAlgoParams for the rationale. DCR is scale-invariant, so the omega arrays below
+// stay in raw radians (no deg/s conversion needed). Both helpers run in O(n) via prefix sums,
+// which matters because gyro streams here are ~1 kHz (tens of thousands of samples).
+
+// Signed rotation vector (scaled axis, radians) of a quaternion, forced into the canonical
+// w>=0 hemisphere so successive small rotations keep a consistent sign.
+V3 quatRotVec(const Quaternion& qin) {
+    Quaternion q = qin.normalized();
+    double w = q.w, x = q.x, y = q.y, z = q.z;
+    if (w < 0.0) { w = -w; x = -x; y = -y; z = -z; }
+    const double vnorm = std::sqrt(x * x + y * y + z * z);
+    if (vnorm < 1e-12) return {0.0, 0.0, 0.0};
+    const double s = 2.0 * std::atan2(vnorm, w) / vnorm;
+    return {x * s, y * s, z * s};
+}
+
+// Half window (in samples) for the sliding consistency estimate.
+long dcrHalfWindow(double sample_rate, const DefaultAlgoParams& p) {
+    return std::max<long>(1, std::lround(p.dcr_window_s * sample_rate / 2.0));
+}
+
+// Per-axis gate: velocity[i][c] *= (|sum(omega_c)| / sum(|omega_c|))^power over the window.
+void applyDcrPerAxis(const std::vector<TimeQuat>& quats, std::vector<V3>& velocity,
+                     double sample_rate, const DefaultAlgoParams& p) {
+    const std::size_t n = quats.size();
+    if (n < 3) return;
+    std::vector<V3> omega(n, V3{0.0, 0.0, 0.0});
+    for (std::size_t i = 1; i < n; ++i) {
+        const Euler e = quatToEuler(quats[i - 1].quat.inverse() * quats[i].quat);
+        omega[i] = {e.roll, e.pitch, e.yaw};
+    }
+    std::vector<V3> psig(n + 1, V3{0.0, 0.0, 0.0});
+    std::vector<V3> pabs(n + 1, V3{0.0, 0.0, 0.0});
+    for (std::size_t i = 0; i < n; ++i)
+        for (int c = 0; c < 3; ++c) {
+            psig[i + 1][c] = psig[i][c] + omega[i][c];
+            pabs[i + 1][c] = pabs[i][c] + std::abs(omega[i][c]);
+        }
+    const long h = dcrHalfWindow(sample_rate, p);
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t lo = (static_cast<long>(i) > h) ? i - static_cast<std::size_t>(h) : 0;
+        const std::size_t hi = std::min<std::size_t>(n - 1, i + static_cast<std::size_t>(h));
+        for (int c = 0; c < 3; ++c) {
+            const double a = pabs[hi + 1][c] - pabs[lo][c];
+            double dcr = (a > 1e-9) ? std::abs(psig[hi + 1][c] - psig[lo][c]) / a : 1.0;
+            if (p.dcr_power != 1.0) dcr = std::pow(dcr, p.dcr_power);
+            velocity[i][c] *= dcr;
+        }
+    }
+}
+
+// Scalar gate: velocity[i] *= (||sum(omega_vec)|| / sum(||omega_vec||))^power over the window.
+void applyDcrScalar(const std::vector<TimeQuat>& quats, std::vector<double>& velocity,
+                    double sample_rate, const DefaultAlgoParams& p) {
+    const std::size_t n = quats.size();
+    if (n < 3) return;
+    std::vector<V3> omega(n, V3{0.0, 0.0, 0.0});
+    for (std::size_t i = 1; i < n; ++i)
+        omega[i] = quatRotVec(quats[i - 1].quat.inverse() * quats[i].quat);
+    std::vector<V3> psig(n + 1, V3{0.0, 0.0, 0.0});
+    std::vector<double> pabs(n + 1, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        pabs[i + 1] = pabs[i] + std::sqrt(omega[i][0] * omega[i][0] + omega[i][1] * omega[i][1] +
+                                          omega[i][2] * omega[i][2]);
+        for (int c = 0; c < 3; ++c) psig[i + 1][c] = psig[i][c] + omega[i][c];
+    }
+    const long h = dcrHalfWindow(sample_rate, p);
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t lo = (static_cast<long>(i) > h) ? i - static_cast<std::size_t>(h) : 0;
+        const std::size_t hi = std::min<std::size_t>(n - 1, i + static_cast<std::size_t>(h));
+        const double a = pabs[hi + 1] - pabs[lo];
+        const double sx = psig[hi + 1][0] - psig[lo][0];
+        const double sy = psig[hi + 1][1] - psig[lo][1];
+        const double sz = psig[hi + 1][2] - psig[lo][2];
+        double dcr = (a > 1e-9) ? std::sqrt(sx * sx + sy * sy + sz * sz) / a : 1.0;
+        if (p.dcr_power != 1.0) dcr = std::pow(dcr, p.dcr_power);
+        velocity[i] *= dcr;
+    }
+}
+
 // Per-axis smoothing — faithful port of the per_axis branch of
 // src/core/smoothing/default_algo.rs. Smooths the three euler components of each relative
 // rotation independently (own velocity scaling per axis), via euler decompose / recompose
@@ -104,6 +185,10 @@ std::vector<TimeQuat> smoothPerAxis(const std::vector<TimeQuat>& quats, double d
     }
     for (std::size_t i = 0; i < n; ++i)
         for (int c = 0; c < 3; ++c) velocity[i][c] /= max_velocity[c];
+
+    // DCR gate: only let the velocity-dampening loosen where motion is directionally
+    // consistent (pan), not where it reciprocates (bob). Off by default => parity preserved.
+    if (p.dcr) applyDcrPerAxis(quats, velocity, sample_rate, p);
 
     // ---- per-axis adaptive pass (euler decompose, scale each component, recompose) ----
     auto adaptive_pass = [&](const std::vector<Quaternion>& in, const std::vector<V3>& ratio) {
@@ -214,6 +299,10 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
     if (p.second_pass) max_velocity *= 0.5;  // match max-zoom behaviour of single pass
     if (max_velocity <= 0.0) max_velocity = 1e-9;
     for (std::size_t i = 0; i < n; ++i) velocity[i] /= max_velocity;
+
+    // DCR gate: only let the velocity-dampening loosen where motion is directionally
+    // consistent (pan), not where it reciprocates (bob). Off by default => parity preserved.
+    if (p.dcr) applyDcrScalar(quats, velocity, sample_rate, p);
 
     // ---- first plain-3D pass with velocity-adaptive alpha ----
     auto adaptive_pass = [&](const std::vector<Quaternion>& in,

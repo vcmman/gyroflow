@@ -63,6 +63,8 @@ void usage(const char* prog) {
               << "  Stabilization: [--max-zoom 130] [--zoom-method envelope|gaussian]"
               << " [--no-adaptive-zoom] [--fov 1.0]\n"
               << "                 [--per-axis --smoothness-pitch/-yaw/-roll 0..1]\n"
+              << "                 [--dcr [--dcr-window 0.5] [--dcr-power 1.0]]"
+              << "  (direction-consistency gate; keeps smoothing on reciprocating shake)\n"
               << "  Framing:       [--keep-sensor] [--output-size WxH]"
               << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
@@ -82,6 +84,8 @@ int main(int argc, char** argv) {
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
     bool per_axis = false;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
+    bool dcr = false;
+    double dcr_window = 0.5, dcr_power = 1.0;
     long max_frames = 0;
     int threads = 0;
 
@@ -118,6 +122,9 @@ int main(int argc, char** argv) {
         else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
         else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
         else if (a == "--smoothness-roll") sm_roll = std::stod(next("--smoothness-roll"));
+        else if (a == "--dcr") dcr = true;
+        else if (a == "--dcr-window") dcr_window = std::stod(next("--dcr-window"));
+        else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -206,8 +213,15 @@ int main(int argc, char** argv) {
     sp.smoothness_pitch = sm_pitch;
     sp.smoothness_yaw = sm_yaw;
     sp.smoothness_roll = sm_roll;
+    sp.dcr = dcr;
+    sp.dcr_window_s = dcr_window;
+    sp.dcr_power = dcr_power;
     std::cout << "Smoothing " << meta.quaternions.size() << " quaternions (diag FOV "
-              << sp.camera_diagonal_fov << " deg)...\n";
+              << sp.camera_diagonal_fov << " deg"
+              << (dcr ? (", DCR gate on (window " + std::to_string(dcr_window) + " s, power " +
+                         std::to_string(dcr_power) + ")")
+                      : std::string())
+              << ")...\n";
     const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Choose the encoder: ffmpeg pipe (H.264/H.265 + audio) when available, else OpenCV.
