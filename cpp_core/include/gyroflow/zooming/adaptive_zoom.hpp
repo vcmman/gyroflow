@@ -36,11 +36,16 @@ struct AdaptiveZoomParams {
 
 // Returns one FOV multiplier per entry in frame_timestamps_ms (same order). FOV < 1 zooms
 // in. Feed each value into TransformParams::fov for the corresponding frame.
+// If raw_fovs_out != nullptr it receives the per-frame instantaneous inscribed FOV
+// (the largest crop with no black border for that frame) BEFORE temporal smoothing and
+// the max_zoom clamp — i.e. the "required" FOV. Black borders are forced wherever this
+// falls below the clamp floor 100/max_zoom_percent. Analysis only; does not affect output.
 std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timestamps_ms,
                                         const std::vector<TimeQuat>& raw,
                                         const std::vector<TimeQuat>& smoothed,
                                         const LensProfile& lens, int width, int height,
                                         double fps, const TransformParams& tp,
-                                        const AdaptiveZoomParams& az);
+                                        const AdaptiveZoomParams& az,
+                                        std::vector<double>* raw_fovs_out = nullptr);
 
 } // namespace gyroflow

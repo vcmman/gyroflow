@@ -234,7 +234,8 @@ std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timesta
                                         const std::vector<TimeQuat>& smoothed,
                                         const LensProfile& lens, int width, int height,
                                         double fps, const TransformParams& tp,
-                                        const AdaptiveZoomParams& az) {
+                                        const AdaptiveZoomParams& az,
+                                        std::vector<double>* raw_fovs_out) {
     const std::size_t nf = frame_timestamps_ms.size();
     if (nf == 0) return {};
 
@@ -302,6 +303,10 @@ std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timesta
                         inv_aspect);
         fov_values[fi] = nearest.bw * 2.0 / out_w;
     }
+
+    // Snapshot the instantaneous per-frame inscribed FOV (the "required" FOV) before any
+    // temporal smoothing / max_zoom clamp, for analysis (black-border cause).
+    if (raw_fovs_out) *raw_fovs_out = fov_values;
 
     // Temporal smoothing (zoom_dynamic::compute, non-keyframed static window).
     if (az.method == ZoomMethod::GaussianFilter) {

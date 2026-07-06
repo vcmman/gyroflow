@@ -251,6 +251,71 @@ Renders: `{0001,0002}_D_cpp_stabilized_dcr_la1.mp4` in `dji6_L/run/cpp_out/`.
 
 ---
 
+## 8. Black borders & static-vs-adaptive zoom (image-domain, full renders)
+
+Full 4K renders of dji6_L clips **0001** (2312 f) and **0002** (1487 f) under five configs —
+`default` (offline), `DCR` (offline), `L1`, `DCR off + 1 s look-ahead` (`la1`), `DCR + 1 s`
+(`dcr_la1`) — evaluated on two image-domain metrics. Tools:
+`tools/{vertical_flow_compare,black_border_stats,zoom_vs_maxzoom}.py`.
+
+**8a. Vertical shake (phaseCorrelate global `dy`, RMS px @640-wide):**
+
+| config | 0001 | 0002 |
+|---|---|---|
+| default (offline) | 0.675 | 1.369 |
+| DCR (offline) | 0.469 | 0.896 |
+| **L1** | **0.356** | **0.825** |
+| DCR off + 1 s LA | 0.675 | 1.372 |
+| DCR + 1 s LA | 0.484 | 0.890 |
+
+- **L1 lowest** on both clips; **DCR ≈ −30…35%** and its offline vs 1 s look-ahead versions
+  nearly coincide (confirms §7: DCR fits inside a 1 s buffer). **`la1` ≡ default** (−0%): once
+  DCR is off, truncating look-ahead to 1 s does **not** change per-frame vertical shake — the
+  bob rejection comes from the short time-constant, not the far future.
+- vs **DJI in-camera** reference clips (different handheld takes, RockSteady, 4:3 full-frame):
+  DJI `dy` RMS **1.93 / 3.84 px** — every cpp config is 3–5× steadier (magnitude reference; DJI
+  keeps the full sensor so it crops less, part of the gap).
+
+**8b. Black borders come only from the `max_zoom` clamp.** The adaptive-zoom envelope tracks the
+per-frame minimum FOV, so the applied crop is ≥ what each frame needs — the **only** way a black
+border is forced is when the instantaneous required FOV drops below the clamp floor
+`min_fov = 100/max_zoom = 0.769` (i.e. required zoom > 1.30). Added an optional `raw_fovs_out`
+to `computeAdaptiveFovs` + a `raw_fov` column to `gyroflow_cpp_validate` to export the required
+FOV. Required-zoom peaks / clamp breaches (max_zoom = 130 %):
+
+| config | 0001 max req | breach frames | 0002 max req | breach frames |
+|---|---|---|---|---|
+| default | 1.271 | **0** | 1.165 | **0** |
+| DCR | 1.583 | 6 (0.3%) | 1.538 | 4 (0.3%) |
+| DCR off + 1 s | 1.271 | **0** | 1.164 | **0** |
+| DCR + 1 s | 1.589 | 5 (0.2%) | 1.525 | 3 (0.2%) |
+
+- **`default` / `la1` never breach** (peak 1.16–1.27 < 1.30) → geometrically **zero** black border.
+  Only the **DCR configs** breach, on a handful of frames (0.2–0.3 %), where DCR's more aggressive
+  reciprocating-shake compensation spikes required zoom to 1.5–1.6.
+- This **corrects** the raw near-black pixel counter (`black_border_stats.py`), which flagged
+  ~0.01 % mean / ~1 % peak "black border" even for `default`: those are **false positives** —
+  edge-touching dark scene content + the 1–2 px undistort-warp boundary (`fov_algorithm_margin`),
+  not clamp-forced crop black. Genuine clamp black border exists **only** in the DCR configs.
+- Fixes: raise `max_zoom` to ~160 % for DCR configs (costs extra crop on those few frames), or
+  floor DCR's required FOV. `default`/`la1` need nothing.
+
+**8c. Static zoom is strictly worse than adaptive — either way you set it.** A constant clip-wide
+zoom cannot redistribute crop to the high-motion frames the way the temporal envelope does:
+
+- **Equal average crop:** a static zoom at adaptive's mean applied zoom (≈1.00 for `default`)
+  leaves the required-zoom peaks uncovered → **~2 % of frames (≈30–50) get black borders**, vs
+  ≈0 % for adaptive at the same average crop.
+- **Equal (zero) black border:** a static zoom must be pinned at the whole-clip worst frame
+  (`default` 1.27, DCR 1.5–1.6) → **+20…27 % more crop on every frame** (DCR configs +39…48 %),
+  permanently narrower FOV.
+
+So adaptive zoom buys either ~0 % black border at equal crop, or 20–48 % less crop at equal
+(zero) black border. Static gives up that trade — using it would make black borders **worse** at
+any comparable FOV budget.
+
+---
+
 ## Bottom line & next steps
 
 - **DCR is a correct rotational-domain improvement** (merged): −45…75% vertical bob, roll bob too,
@@ -275,12 +340,17 @@ Renders: `{0001,0002}_D_cpp_stabilized_dcr_la1.mp4` in `dji6_L/run/cpp_out/`.
 4. Add a jerk-RMS metric to `stabilization_quality.py`.
 5. Re-run §5/§6 under a 1 s-look-ahead cap (truncated backward pass / receding-horizon) for
    in-camera-achievable numbers.
+6. (§8b) Raise `max_zoom` to ~160 % for DCR configs, or floor DCR's required FOV, to kill the
+   handful of clamp-forced black-border frames.
 
 ### Reproduce
 ```sh
 # camera-path CSV per mode (this branch: default/DCR; jolt branch: --smoothing l1 --l1-match-default)
-gyroflow_cpp_validate BRIDGE.json --frames N [--dcr]      > path.csv
+# CSV now also carries raw_fov (pre-smoothing/clamp required FOV) for the §8 zoom analysis.
+gyroflow_cpp_validate BRIDGE.json --frames N [--dcr] [--look-ahead 1]   > path.csv
 # metrics: convert smoothed quat -> euler pitch; band RMS (0.5-5 Hz bob / <0.5 Hz intent);
 #          jerk = 3rd time-difference RMS; crop = max|smoothed-raw| or mean fov.
-# image-domain: cv2.phaseCorrelate consecutive frames -> integrate dy -> bob-band RMS.
+# image-domain (§8): tools/vertical_flow_compare.py (phaseCorrelate dy),
+#          tools/black_border_stats.py (edge-connected near-black area),
+#          tools/zoom_vs_maxzoom.py (required vs applied zoom vs max_zoom clamp, from raw_fov).
 ```

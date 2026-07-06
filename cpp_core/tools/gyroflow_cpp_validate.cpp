@@ -135,17 +135,20 @@ int main(int argc, char** argv) {
     az.method = (zoom_method == "gaussian" || zoom_method == "0")
                     ? ZoomMethod::GaussianFilter
                     : ZoomMethod::EnvelopeFollower;
+    std::vector<double> raw_fovs;
     const std::vector<double> fovs =
-        computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az);
+        computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az,
+                            &raw_fovs);
 
-    std::printf("frame,ts_ms,ow,ox,oy,oz,sw,sx,sy,sz,fov\n");
+    std::printf("frame,ts_ms,ow,ox,oy,oz,sw,sx,sy,sz,fov,raw_fov\n");
     for (long j = 0; j < frames; ++j) {
         const double ts = static_cast<double>(j) * 1000.0 / fps + readout / 2.0;
         const Quaternion o = sampleQuaternion(meta.quaternions, ts);
         const Quaternion s = sampleQuaternion(smoothed, ts);
         const double fov = (j < static_cast<long>(fovs.size())) ? fovs[j] : 1.0;
-        std::printf("%ld,%.4f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.6f\n", j, ts, o.w, o.x,
-                    o.y, o.z, s.w, s.x, s.y, s.z, fov);
+        const double raw_fov = (j < static_cast<long>(raw_fovs.size())) ? raw_fovs[j] : 1.0;
+        std::printf("%ld,%.4f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.6f,%.6f\n", j, ts, o.w, o.x,
+                    o.y, o.z, s.w, s.x, s.y, s.z, fov, raw_fov);
     }
     return 0;
 }
