@@ -76,12 +76,22 @@ Port `djmd`/DVTM protobuf parsing + readout extraction + lens-profile DB (CBOR+g
 `src/core/gyro_source/mod.rs`, `lens_profile_database.rs`, the `telemetry-parser` crate. (Also
 where DJI's native quaternion axis convention is normalized into the orientation frame.)
 
-### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑")
+### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑") + running float
 Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
-distinguish an intentional fast pan from an unintentional jolt and passes the jolt through;
+distinguish an intentional fast pan from an unintentional jolt/bob and passes it through;
 adaptive zoom then "pumps" or hits `max_zoom` (black borders). A prototype + the measurement
 tooling and findings are recorded in **`cpp_core/JOLT_RND.md`** (the gated-smoothing code was
-NOT merged). Candidate upgrades:
+NOT merged).
+
+The related **running low-frequency vertical float** case has its own record in
+**`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
+**merged** — cuts the rotational vertical bob −45…75% by only loosening when motion is fast AND
+directionally consistent. But an image-domain cross-check shows the *visible* running float is
+dominated by **translational parallax** (unremovable by any rotational smoother — the real
+ceiling), and a Gaussian base kernel beats EMA+DCR on jerk at equal crop. Candidate upgrades:
+- **Translation-domain residual stabilization** (optical-flow 2-D / depth-aware) — the actual
+  fix for the visible running float; rotation-only methods cannot reach it.
+- **Gaussian / linear-phase base kernel** as `--smoothing gaussian` (drops DCR; far lower jerk).
 - **Jerk/transient detection + non-causal variable-window smoothing** (widen the window /
   reduce follow around detected impacts) — most targeted, medium cost.
 - **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
