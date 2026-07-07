@@ -317,6 +317,34 @@ So adaptive zoom buys either ~0 % black border at equal crop, or 20–48 % less 
 (zero) black border. Static gives up that trade — using it would make black borders **worse** at
 any comparable FOV budget.
 
+**8c′. Dynamic-vs-static, broken down by smoothing config.** The static penalty is not uniform —
+it scales with how *spiky* each config's per-frame required FOV is. From the `raw_fov` series
+(default / DCR / per-axis, three clips), black-border frames under DYNAMIC vs STATIC (equal mean
+crop), and the extra constant crop a STATIC zoom needs for zero black border:
+
+| clip | config | dynamic bb % | static bb % | static-for-0BB extra crop |
+|---|---|---:|---:|---:|
+| run 0001 | default | 0.0 | 2.5 | +27 % |
+| run 0001 | DCR | 0.3 | 2.5 | +46 % |
+| run 0001 | per-axis | 0.3 | 4.5 | +47 % |
+| run 0002 | default | 0.0 | 2.2 | +20 % |
+| run 0002 | DCR | 0.3 | 2.0 | +39 % |
+| run 0002 | per-axis | 0.8 | 5.4 | +40 % |
+| bike 0005 | default | 0.0 | 4.5 | +19 % |
+| bike 0005 | DCR | 0.0 | 4.5 | +23 % |
+| bike 0005 | per-axis | 0.2 | 5.5 | +41 % |
+
+- **Dynamic zoom wins for every config** — ~0–0.8 % black-border frames vs static's 2.0–5.5 % at
+  equal crop (roughly a 10× reduction). Figure: `dynamic_vs_static_zoom_blackborder.png`.
+- **The gap is *largest* for the aggressive configs.** default's required FOV is the flattest, so
+  static costs "only" +19–27 % crop / 2–4.5 % black border. DCR and especially **per-axis** have
+  spikier required FOV (they zoom harder on peaks), so under static they black-border most
+  (per-axis 4.5–5.5 %) and need the most constant crop (+40–47 %) to avoid it.
+- **Takeaway:** dynamic zoom matters *more* the more aggressive the smoothing. Precisely the configs
+  that remove the most shake (DCR, per-axis) are the ones that would suffer most under a static
+  crop — so adaptive zoom is not optional for them. Under dynamic zoom the residual black border is
+  tiny for all (§8b: mostly clamp peaks, negligible in renders).
+
 ## 8d. Per-axis smoothing on top of `la1` — a real extra vertical win
 
 Tried per-axis smoothing (`--per-axis`, independent `smoothness_{pitch,yaw,roll}` on the three
