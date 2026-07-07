@@ -359,6 +359,43 @@ border, clip 0002):
   top of `la1` is a worthwhile, near-free −16 % vertical-shake improvement. Pan is untouched
   (euler[2] left at 0.5). The only real cost is a handful of tiny clamp-black frames — kill them
   by raising `max_zoom` to ~150 % or flooring the required FOV (§8b item 6).
+  **But it does not generalize — see §8e.**
+
+## 8e. Tier-1 landing — full matrix, offline, both clips (CONFIRMED)
+
+Decision run for shipping a default enhancement. Rendered the full matrix — `default`, `DCR`,
+`per-axis` (euler[1]=0.9), `DCR+per-axis` at `max_zoom` 130 and (black-border floor) 170 — offline,
+both clips, and measured rendered `dy` + black border. `figures/tier1_stack_eval.png`.
+
+| clip | config | dy RMS | Δ | bb max % | crop (mean zoom) |
+|---|---:|---:|---:|---:|---:|
+| 0001 | default | 0.675 | — | 1.13 | 1.00 |
+| 0001 | **DCR (`--enhanced`)** | **0.469** | **−31 %** | 1.15 | 1.08 |
+| 0001 | per-axis y0.9 | 0.508 | −25 % | 1.63 | 1.10 |
+| 0001 | DCR+per-axis @130 | 0.386 | −43 % | **8.56** ✗ | 1.13 |
+| 0001 | DCR+per-axis @170 | 0.417 | −38 % | 0.58 | higher |
+| 0002 | default | 1.369 | — | 1.84 | 0.97 |
+| 0002 | **DCR (`--enhanced`)** | **0.896** | **−35 %** | 1.25 | 1.10 |
+| 0002 | per-axis y0.9 | 1.152 | −16 % | 1.49 | 1.12 |
+| 0002 | DCR+per-axis @130 | 0.902 | −34 % | **8.81** ✗ | 1.18 |
+| 0002 | DCR+per-axis @170 | 1.066 | **−22 %** ✗ | 0.29 | higher |
+
+**Conclusion (confirmed):** ship **DCR alone** as the Tier-1 preset (`--enhanced`, keeps the golden
+default untouched). It is the clean, robust win on **both** clips — −31/−35 % vertical shake, black
+border unchanged from default (~1.2 %), +8…13 % crop.
+
+**Per-axis is excluded**, refuting the §8d hypothesis that it stacks with DCR:
+- It only helps clip 0001. On **0002 it gives no benefit over DCR** (−16 % alone vs DCR's −35 %),
+  and **DCR+per-axis is actually worse than DCR** there (−34 % → −22 % once the black border is
+  floored at mz170).
+- `DCR+per-axis` at the default `max_zoom` is **unshippable** (8.6–8.8 % black border — required zoom
+  stacks to 1.9–2.0, far past the 1.30 clamp). The floor (mz170) fixes the black border but costs
+  more crop everywhere and still doesn't beat DCR on 0002.
+- §8d's −16 % was real but clip-specific; per-axis needs a per-clip crop budget it can't be given by
+  a fixed default. Kept as an available flag, not in the preset.
+
+Golden parity preserved: library/CLI defaults stay `dcr=false` (ctest 7/7, `--enhanced`≡`--dcr`,
+default validate output unchanged).
 
 ---
 
@@ -378,9 +415,11 @@ border, clip 0002):
   future buffer caps symmetric smoothing at ~1 s — DCR stays realizable, but the Gaussian and L1
   advantages shrink (they need >1 s future). Use **full-past forward + 1 s backward**, not a
   symmetric ±1 s window.
-- **Per-axis is a real extra win (§8d):** smoothing the vertical euler axis (euler[1] =
-  `--smoothness-yaw ≈0.9`) harder than the pan gives −16 % vertical shake on top of `la1`
-  (rendered), pan untouched, negligible black border. A cheap, orthogonal complement to DCR.
+- **Tier-1 landing = DCR alone (§8e, CONFIRMED):** shipped as `--enhanced`. −31/−35 % rendered
+  vertical shake on both clips, black border unchanged from default, +8…13 % crop; golden default
+  untouched. **Per-axis (§8d) was evaluated and excluded** — it helps only one clip, gives no gain
+  on 0002, and stacking it with DCR forces 8.6–8.8 % black border (needs more crop than a fixed
+  default can give). Kept as a flag, not in the preset.
 
 ### Candidate work items
 1. Translation-domain residual stabilization (the actual visible-float fix).
@@ -391,8 +430,9 @@ border, clip 0002):
    in-camera-achievable numbers.
 6. (§8b) Raise `max_zoom` to ~160 % for DCR configs, or floor DCR's required FOV, to kill the
    handful of clamp-forced black-border frames.
-7. (§8d) Ship per-axis vertical smoothing as a default-on option on `la1` (euler[1]≈0.9,
-   euler[0]/[2]=0.5); confirm the −16 % on clip 0001 and pick the crop/gain sweet-spot yaw value.
+7. ~~(§8d) Ship per-axis vertical smoothing as a default-on option~~ — **done/closed by §8e:**
+   evaluated the full matrix; **DCR alone** ships as `--enhanced`, per-axis excluded (no gain on
+   0002, black-border cost). Next: after Tier-1, move to translation-domain stabilization (§3).
 
 ### Reproduce
 ```sh

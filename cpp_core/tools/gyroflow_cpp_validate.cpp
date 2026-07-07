@@ -59,6 +59,7 @@ int main(int argc, char** argv) {
         else if (a == "--dcr-window") dcr_window = std::stod(next("--dcr-window"));
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
         else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
+        else if (a == "--enhanced") dcr = true;  // recommended preset (SMOOTHING_RND §8e) = DCR on
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");

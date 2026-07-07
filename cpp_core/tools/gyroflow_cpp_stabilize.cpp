@@ -63,6 +63,7 @@ void usage(const char* prog) {
               << "  Stabilization: [--max-zoom 130] [--zoom-method envelope|gaussian]"
               << " [--no-adaptive-zoom] [--fov 1.0]\n"
               << "                 [--per-axis --smoothness-pitch/-yaw/-roll 0..1]\n"
+              << "                 [--enhanced]  (recommended preset: DCR on; -31..35% vertical shake)\n"
               << "                 [--dcr [--dcr-window 0.5] [--dcr-power 1.0]]"
               << "  (direction-consistency gate; keeps smoothing on reciprocating shake)\n"
               << "                 [--look-ahead 0]  (>0 = in-camera finite future buffer, s;"
@@ -129,6 +130,12 @@ int main(int argc, char** argv) {
         else if (a == "--dcr-window") dcr_window = std::stod(next("--dcr-window"));
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
         else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
+        // Recommended stabilization preset (SMOOTHING_RND §8e): the validated Tier-1 stack.
+        // Currently = DCR on (−31…35% rendered vertical shake, black border ~unchanged from
+        // default, +8…13% crop). Per-axis vertical smoothing was evaluated and *excluded* — it
+        // only helped one clip and forced black borders / more crop. Keeps the golden default
+        // (scalar, dcr off) intact; explicit flags after --enhanced still override.
+        else if (a == "--enhanced") dcr = true;
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
