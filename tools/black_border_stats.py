@@ -9,55 +9,10 @@ scene content that is not connected to an edge. Metric = that area / total px.
 """
 import os, argparse
 os.environ.setdefault("MPLBACKEND", "Agg")
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-def border_black_series(path, width=480, thresh=8, stride=5, max_frames=None):
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise RuntimeError(f"cannot open {path}")
-    fracs, idxs = [], []
-    i = -1
-    got = 0
-    size = None
-    while True:
-        ok = cap.grab()
-        if not ok:
-            break
-        i += 1
-        if i % stride != 0:
-            continue
-        ok, f = cap.retrieve()
-        if not ok:
-            break
-        if size is None:
-            scale = width / f.shape[1]
-            size = (width, int(round(f.shape[0] * scale)))
-        g = cv2.cvtColor(cv2.resize(f, size), cv2.COLOR_BGR2GRAY)
-        mask = (g <= thresh).astype(np.uint8)
-        if mask.any():
-            num, labels = cv2.connectedComponents(mask, connectivity=8)
-            border = np.concatenate([labels[0, :], labels[-1, :],
-                                     labels[:, 0], labels[:, -1]])
-            border_lbls = np.unique(border)
-            border_lbls = border_lbls[border_lbls != 0]
-            if border_lbls.size:
-                area = np.isin(labels, border_lbls).sum()
-            else:
-                area = 0
-        else:
-            area = 0
-        fracs.append(100.0 * area / (size[0] * size[1]))
-        idxs.append(i)
-        got += 1
-        if got % 200 == 0:
-            print(f"  {os.path.basename(path)}: {got} sampled (frame {i})", flush=True)
-        if max_frames and i >= max_frames:
-            break
-    cap.release()
-    return np.asarray(idxs), np.asarray(fracs)
+from gyro_analysis.video_metrics import edge_black_series
 
 
 def main():
@@ -89,7 +44,7 @@ def main():
                 print(f"SKIP missing {p}")
                 continue
             print(f"Analyzing {fn} ...", flush=True)
-            idx, frac = border_black_series(p, args.width, args.thresh, args.stride, args.max_frames)
+            idx, frac = edge_black_series(p, args.width, args.thresh, args.stride, args.max_frames)
             ts[(clip, label)] = (idx, frac)
             stats[(clip, label)] = dict(
                 mean=float(np.mean(frac)), mx=float(np.max(frac)),

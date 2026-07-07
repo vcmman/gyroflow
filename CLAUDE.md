@@ -123,9 +123,10 @@ native DJI protobuf + libav decode are later phases.
 Python 3.10+ scripts (need `numpy`, `matplotlib`) that extract and plot DJI MP4 quaternion
 streams. Several scripts shell out to a built Gyroflow binary to export the same camera-data
 CSV Gyroflow uses internally; they locate it via `--gyroflow-bin`, `$GYROFLOW_BIN`, or
-`gyroflow`/`Gyroflow` on `PATH`. On headless machines set `MPLBACKEND=Agg`. See
-`tools/README_DJI_quaternion.md` for the full command reference; shared helpers live in
-`tools/gyro_analysis/`.
+`gyroflow`/`Gyroflow` on `PATH`. On headless machines set `MPLBACKEND=Agg`. `tools/README.md`
+indexes **all** scripts (DJI telemetry, cpp_core bridge/validation, image-domain eval);
+`tools/README_DJI_quaternion.md` is the full DJI command reference; shared helpers live in
+`tools/gyro_analysis/` (incl. `video_metrics.py` — the phaseCorrelate `dy` / black-border metrics).
 
 ## Conventions
 

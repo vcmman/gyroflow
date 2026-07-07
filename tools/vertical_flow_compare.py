@@ -6,46 +6,12 @@ sub-pixel translation with cv2.phaseCorrelate; keep the vertical component
 (dy = per-frame up/down shift, in pixels of the analysis resolution).
 Plot dy vs frame number, overlaying the modes for comparison.
 """
-import os, sys, argparse
+import os, argparse
 os.environ.setdefault("MPLBACKEND", "Agg")
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-def vertical_flow(path, width=640, max_frames=None):
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise RuntimeError(f"cannot open {path}")
-    ok, prev = cap.read()
-    if not ok:
-        raise RuntimeError(f"empty video {path}")
-    scale = width / prev.shape[1]
-    size = (width, int(round(prev.shape[0] * scale)))
-    win = cv2.createHanningWindow(size, cv2.CV_32F)
-
-    def prep(f):
-        g = cv2.cvtColor(cv2.resize(f, size), cv2.COLOR_BGR2GRAY)
-        return np.float32(g)
-
-    prev_g = prep(prev)
-    dys = []
-    i = 0
-    while True:
-        ok, cur = cap.read()
-        if not ok:
-            break
-        cur_g = prep(cur)
-        (dx, dy), _resp = cv2.phaseCorrelate(prev_g, cur_g, win)
-        dys.append(dy)
-        prev_g = cur_g
-        i += 1
-        if max_frames and i >= max_frames:
-            break
-        if i % 200 == 0:
-            print(f"  {os.path.basename(path)}: {i} frames", flush=True)
-    cap.release()
-    return np.asarray(dys)
+from gyro_analysis.video_metrics import vertical_flow
 
 
 def main():

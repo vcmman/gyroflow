@@ -105,7 +105,8 @@ CPU x264 + 8-bit `yuv420p` to match the C++ 8-bit decode path; the C++ render is
 magnitude agrees to ≤0.3 %, and the per-frame `dy` traces track each other to <0.1 px (corr
 0.998–1.000). The sub-0.1 px residual is the same non-geometric noise as §2 (8-bit decode:
 OpenCV vs libav, x264 encode settings, end-frame alignment 2312 vs 2307), not a stabilization
-difference. Figure: `figures/rust_vs_cpp_default_dy.png`.
+difference. Reproduce with `tools/rust_vs_cpp_dy.py --pair <clip> <rust.mp4> <cpp.mp4> …`;
+figure: `figures/rust_vs_cpp_default_dy.png`.
 
 ## Conclusion
 

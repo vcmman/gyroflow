@@ -17,7 +17,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | same, plus a DJI in-camera reference clip per subplot |
 | `black_border_stats.png` | `tools/black_border_stats.py` | edge-connected near-black area per frame (mean/max + time series) |
 | `zoom_vs_maxzoom.png` | `tools/zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom (`1/fov`) vs the `max_zoom` clamp |
-| `rust_vs_cpp_default_dy.png` | inline script (see `../COMPARISON.md` §4) | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
+| `rust_vs_cpp_default_dy.png` | `tools/rust_vs_cpp_dy.py` | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
@@ -116,6 +116,12 @@ MPLBACKEND=Agg python3 tools/black_border_stats.py --dir "$CPP_OUT" --width 480 
 # Required vs applied zoom vs max_zoom clamp (reads the validate CSVs)
 MPLBACKEND=Agg python3 tools/zoom_vs_maxzoom.py --dir "$CPP_OUT" --max-zoom 1.30 \
   -o cpp_core/figures/zoom_vs_maxzoom.png
+
+# Rust-vs-C++ default parity (needs a Rust render per clip first — see ../COMPARISON.md §4)
+MPLBACKEND=Agg python3 tools/rust_vs_cpp_dy.py \
+  --pair 0001 "$RUN/DJI_..._0001_D_rust_default.mp4" "$CPP_OUT/0001_D_cpp_stabilized.mp4" \
+  --pair 0002 "$RUN/DJI_..._0002_D_rust_default.mp4" "$CPP_OUT/0002_D_cpp_stabilized.mp4" \
+  -o cpp_core/figures/rust_vs_cpp_default_dy.png
 ```
 
 Each script also prints a summary table to stdout (RMS `dy` per config; black-border
