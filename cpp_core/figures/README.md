@@ -17,6 +17,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | same, plus a DJI in-camera reference clip per subplot |
 | `black_border_stats.png` | `tools/black_border_stats.py` | edge-connected near-black area per frame (mean/max + time series) |
 | `zoom_vs_maxzoom.png` | `tools/zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom (`1/fov`) vs the `max_zoom` clamp |
+| `rust_vs_cpp_default_dy.png` | inline script (see `../COMPARISON.md` §4) | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
@@ -147,3 +148,9 @@ mean/p99/max/%frames; max required zoom + clamp-breach frame counts).
 
 ### Required vs applied zoom vs max_zoom clamp
 ![zoom vs max_zoom](zoom_vs_maxzoom.png)
+
+### Rust vs C++ default — port parity (`dy`)
+Same-metric head-to-head of the Rust and C++ **default** renders under identical params; the
+traces overlap (RMS agrees ≤0.3 %, per-frame corr 0.998–1.000). Reproduce steps in
+[`../COMPARISON.md` §4](../COMPARISON.md).
+![rust vs cpp default dy](rust_vs_cpp_default_dy.png)

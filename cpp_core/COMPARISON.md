@@ -87,6 +87,26 @@ near-identical residual optical flow (7.54 vs 7.59 px — both retain the same r
 motion, the walking subject). The small ITF gap (0.17 dB) reflects the ~0.11 px pixel
 residual from §2, not a difference in how much shake is removed.
 
+## 4. Full-clip vertical-shake parity (phaseCorrelate `dy`)
+
+A same-metric head-to-head on the **full length** of two more clips (`dji6_L` 0001 / 0002),
+default params on both sides: the Rust render is produced from the exported `.gyroflow` project
+(smoothness 0.5, per_axis 0, adaptive zoom envelope, max_zoom 130, 16:9 `output_dimension`) with
+CPU x264 + 8-bit `yuv420p` to match the C++ 8-bit decode path; the C++ render is
+`*_cpp_stabilized.mp4`. Metric = per-frame global vertical shift `dy`
+([`figures/README.md`](figures/README.md#metric-what-phasecorrelate-dy-means)):
+
+| clip | Rust RMS `dy` | C++ RMS `dy` | ratio | per-frame RMS(rust−cpp) | corr |
+|---|---:|---:|---:|---:|---:|
+| 0001 (2312 f) | 0.675 px | 0.675 px | 1.001 | **0.017 px** | **1.000** |
+| 0002 (1487 f) | 1.374 px | 1.369 px | 0.997 | **0.074 px** | 0.998 |
+
+→ The two outputs are **indistinguishable on the actual pixels**: overall vertical-shake
+magnitude agrees to ≤0.3 %, and the per-frame `dy` traces track each other to <0.1 px (corr
+0.998–1.000). The sub-0.1 px residual is the same non-geometric noise as §2 (8-bit decode:
+OpenCV vs libav, x264 encode settings, end-frame alignment 2312 vs 2307), not a stabilization
+difference. Figure: `figures/rust_vs_cpp_default_dy.png`.
+
 ## Conclusion
 
 Under identical parameters the C++ port is **functionally equivalent** to Rust Gyroflow:
