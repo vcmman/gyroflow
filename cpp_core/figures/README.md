@@ -23,7 +23,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `bike0005_dcr_4x3_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: our DCR 4:3 vs DJI 4:3 (16:9 ref) — FOV-matched |
 | `bike0005_dcr_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: original vs DCR vs DJI (16:9) |
 | `angular_velocity_raw_vs_smoothed.png` | `tools/angular_velocity_compare.py` | telemetry-domain: raw gyro vs smoothed (default/DCR) angular velocity, run 0001/0002 + bike |
-| `angular_jerk_compare.png` | `tools/angular_jerk_compare.py` | angular jerk RMS by config (default/DCR/per-axis), perceived smoothness — backs `SMOOTHING_RND.md` §8f |
+| `angular_derivatives_compare.png` | `tools/angular_derivatives_compare.py` | angular velocity/accel/jerk RMS by config — same ranking at every order (accel discriminates most, jerk redundant); §8f |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
@@ -178,11 +178,11 @@ How the smoothing (and DCR) attenuates the raw camera angular velocity while kee
 motion. Raw→DCR RMS: run0001 58→16 °/s (−72 %), run0002 87→21 °/s (−76 %), bike 28→7 °/s (−76 %).
 ![angular velocity raw vs smoothed](angular_velocity_raw_vs_smoothed.png)
 
-### Angular jerk by config (perceived smoothness)
-Jerk RMS (deg/s³, log) after filtering. Smoothing cuts jerk 40–140× vs raw; DCR lowers it most on
-violent motion (run 0002 −35 %), per-axis is lowest everywhere but at the §8e black-border cost.
+### Smoothed-path derivatives by config (velocity / acceleration / jerk)
+RMS (log) of the 1st/2nd/3rd derivatives. All three rank configs identically (per-axis < DCR <
+default), so **jerk is redundant**; **acceleration** discriminates most (default→DCR −33/−54/−12 %).
 See [`../SMOOTHING_RND.md` §8f](../SMOOTHING_RND.md).
-![angular jerk compare](angular_jerk_compare.png)
+![angular derivatives compare](angular_derivatives_compare.png)
 
 ### Rust vs C++ default — port parity (`dy`)
 Same-metric head-to-head of the Rust and C++ **default** renders under identical params; the

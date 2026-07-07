@@ -44,7 +44,7 @@ Metric definitions + reproduce commands: [`../cpp_core/figures/README.md`](../cp
 | `zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom vs the `max_zoom` clamp, from `gyroflow_cpp_validate` CSVs |
 | `rust_vs_cpp_dy.py` | Rust-vs-C++ **default**-render parity via `dy` (backs `COMPARISON.md` §4) |
 | `angular_velocity_compare.py` | telemetry-domain: raw gyro vs smoothed (per config) angular velocity, from `gyroflow_cpp_validate` CSVs |
-| `angular_jerk_compare.py` | telemetry-domain: angular jerk RMS (perceived smoothness) by config, from `gyroflow_cpp_validate` CSVs |
+| `angular_derivatives_compare.py` | telemetry-domain: angular velocity/accel/jerk RMS by config (`--orders`), from `gyroflow_cpp_validate` CSVs |
 
 ## Shared package — `gyro_analysis/`
 
