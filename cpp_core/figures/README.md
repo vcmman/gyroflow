@@ -19,6 +19,9 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `zoom_vs_maxzoom.png` | `tools/zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom (`1/fov`) vs the `max_zoom` clamp |
 | `rust_vs_cpp_default_dy.png` | `tools/rust_vs_cpp_dy.py` | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
 | `tier1_stack_eval.png` | `vertical_flow_compare.py` + `black_border_stats.py` | Tier-1 decision matrix (`default`/DCR/per-axis/combo) — backs `SMOOTHING_RND.md` §8e |
+| `dji_headtohead_summary.png` | matched-pair `dy` (see `../EVALUATION_SUMMARY.md`) | DCR vs DJI in-camera, FOV-matched 4:3, run + bike |
+| `bike0005_dcr_4x3_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: our DCR 4:3 vs DJI 4:3 (16:9 ref) — FOV-matched |
+| `bike0005_dcr_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: original vs DCR vs DJI (16:9) |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
@@ -161,6 +164,12 @@ Rendered `dy` + black border across the candidate default-enhancement configs; c
 alone** (`--enhanced`) and excludes per-axis. Full table in
 [`../SMOOTHING_RND.md` §8e](../SMOOTHING_RND.md).
 ![tier1 stack eval](tier1_stack_eval.png)
+
+### DCR vs DJI in-camera — matched scene, FOV-matched 4:3
+Head-to-head against DJI RockSteady on matched same-scene pairs (see
+[`../EVALUATION_SUMMARY.md`](../EVALUATION_SUMMARY.md) §6): DCR ~4× steadier on running (violent
+bob), DJI ~1.3× steadier on smooth biking (frame-periphery residual).
+![dji head-to-head](dji_headtohead_summary.png)
 
 ### Rust vs C++ default — port parity (`dy`)
 Same-metric head-to-head of the Rust and C++ **default** renders under identical params; the

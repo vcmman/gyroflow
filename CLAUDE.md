@@ -104,7 +104,10 @@ both zoom methods ≤0.0047% over the full 11 934-frame dji6 clip) via `tools/gy
 and validation numbers live in `cpp_core/README.md` and `cpp_core/DEVELOPMENT_PLAN.md`; the
 end-to-end algorithm flow + exact parameters behind the result video are in
 `cpp_core/PIPELINE.md`; the quantitative head-to-head vs Gyroflow under identical parameters
-(math, frame PSNR, stabilization quality) is in `cpp_core/COMPARISON.md`. Coordinate
+(math, frame PSNR, stabilization quality) is in `cpp_core/COMPARISON.md`. The executive summary
+of the stabilization evaluation — DCR (`--enhanced`) landing, the config survey, black-border /
+zoom analysis, and the FOV-matched head-to-head vs DJI in-camera RockSteady — is in
+`cpp_core/EVALUATION_SUMMARY.md` (details in `cpp_core/SMOOTHING_RND.md` §8). Coordinate
 conventions (and why a gyro in the OpenCV image frame needs Gyroflow `imu_orientation = yxz`,
 Gyroflow's expected IMU input frame being X=up/Y=left/Z=back) are in `cpp_core/PIPELINE.md`
 ("Coordinate conventions"), verified by `cpp_core/tests/test_imu_orientation.cpp`.
