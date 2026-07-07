@@ -397,6 +397,28 @@ border unchanged from default (~1.2 %), +8…13 % crop.
 Golden parity preserved: library/CLI defaults stay `dcr=false` (ctest 7/7, `--enhanced`≡`--dcr`,
 default validate output unchanged).
 
+## 8f. Angular jerk by config (perceived smoothness)
+
+Telemetry-domain view of §4's jerk idea, plotted across configs. Jerk = d³θ/dt³ (2nd derivative
+of the angular-velocity vector); perceived smoothness tracks it. Tools:
+`tools/{angular_velocity_compare,angular_jerk_compare}.py` (read validate CSVs). Jerk RMS (deg/s³):
+
+| clip | raw | default | DCR | per-axis y0.9 |
+|---|---:|---:|---:|---:|
+| run 0001 | 26 754 | 625 | 582 | **386** |
+| run 0002 | 52 482 | 1216 | **785** (−35 %) | **663** |
+| bike 0005 | 26 635 | 193 | 195 | **135** |
+
+- Smoothing cuts jerk **40–140×** vs raw; the angular-velocity view (`angular_velocity_raw_vs_smoothed.png`)
+  shows the raw spikes stripped to the intentional-motion envelope (raw→DCR RMS: run 58→16, run2
+  87→21, bike 28→7 °/s).
+- **DCR lowers jerk most where motion is violent** — run 0002 −35 % vs default — and ≈ default on
+  smooth bike; consistent with DCR keeping full smoothing on reciprocating (high-jerk) shake.
+- **per-axis has the lowest jerk everywhere**, but this is the §8e tension restated: lowest jerk is
+  **not** overall-best — per-axis buys that smoothness with black borders and inconsistent `dy`, so
+  DCR remains the balanced Tier-1 choice. Figures: `angular_jerk_compare.png`,
+  `angular_velocity_raw_vs_smoothed.png`.
+
 ---
 
 ## Bottom line & next steps
@@ -423,7 +445,11 @@ default validate output unchanged).
 
 ### Candidate work items
 1. Translation-domain residual stabilization (the actual visible-float fix).
-2. Port a Gaussian (or linear-phase) base kernel as an alternative smoother; re-measure on renders.
+2. **(next) Swap the EMA base kernel for a Gaussian (linear-phase) kernel** and evaluate against the
+   current EMA/DCR on **both** the optical-flow (`dy`, `tools/vertical_flow_compare.py`) **and the
+   angular-jerk** (`tools/angular_jerk_compare.py`, §8f) axes — a linear-phase Gaussian should lower
+   jerk without the DCR gate; check whether it holds `dy` and crop, on real renders (the §6 numbers
+   are a 30 Hz telemetry proxy).
 3. Mean-fov-matched L1 vs DCR vs Gaussian comparison (telemetry-fast).
 4. Add a jerk-RMS metric to `stabilization_quality.py`.
 5. Re-run §5/§6 under a 1 s-look-ahead cap (truncated backward pass / receding-horizon) for

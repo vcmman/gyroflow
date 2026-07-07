@@ -129,12 +129,16 @@ could not fully measure (DJI's output FOV is not in telemetry).
 −31…35 % vertical shake, ~4× better than DJI on running, on par (center) on biking.
 
 **Next (from the analysis):**
-1. **Frame-periphery residual** — the only place DJI leads. Investigate per-row rolling-shutter and
+1. **Gaussian base kernel** — swap the EMA smoother for a linear-phase Gaussian kernel and evaluate
+   it against EMA/DCR on **both** axes measured here: optical flow (`dy`) and angular jerk (§8f). A
+   linear-phase kernel should lower jerk without the DCR gate; check it holds `dy` and crop on real
+   renders. Tools: `tools/vertical_flow_compare.py` + `tools/angular_jerk_compare.py`.
+2. **Frame-periphery residual** — the only place DJI leads. Investigate per-row rolling-shutter and
    fisheye-distortion accuracy at the sensor edges (band analysis localizes it to the bottom/edge).
-2. **Translation-domain stabilization** (`SMOOTHING_RND.md` §3) — the visible "running float" is
+3. **Translation-domain stabilization** (`SMOOTHING_RND.md` §3) — the visible "running float" is
    translational parallax that no rotational smoother can remove; the largest remaining quality
    headroom, a separate larger effort.
-3. **Native 10-bit decode + DJI parse** (`TODO.md`) — port-completeness (pixel fidelity), removes
+4. **Native 10-bit decode + DJI parse** (`TODO.md`) — port-completeness (pixel fidelity), removes
    the bridge.
 
 Reproduce everything: [`figures/README.md`](figures/README.md).
