@@ -259,7 +259,9 @@ Full 4K renders of dji6_L clips **0001** (2312 f) and **0002** (1487 f) under fi
 `tools/{vertical_flow_compare,black_border_stats,zoom_vs_maxzoom}.py`; figures and the exact
 reproduce commands are in [`figures/README.md`](figures/README.md).
 
-**8a. Vertical shake (phaseCorrelate global `dy`, RMS px @640-wide):**
+**8a. Vertical shake (phaseCorrelate global `dy`, RMS px @640-wide)** — `dy` = per-frame global
+vertical shift between consecutive rendered frames; metric defined in
+[`figures/README.md`](figures/README.md#metric-what-phasecorrelate-dy-means):
 
 | config | 0001 | 0002 |
 |---|---|---|

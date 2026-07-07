@@ -21,6 +21,27 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
 
+## Metric: what `phaseCorrelate dy` means
+
+`dy` is the **per-frame global vertical shift, in pixels, between consecutive frames** of the
+rendered (already-stabilized) video — a direct proxy for residual vertical shake / bob.
+
+- **How:** `cv2.phaseCorrelate(prev, cur)` estimates the single global translation `(dx, dy)`
+  that best aligns two frames, to sub-pixel precision, by comparing their phase in the frequency
+  domain (FFT). We keep the vertical component `dy` and discard `dx`. A Hanning window
+  (`createHanningWindow`) is applied first to suppress FFT edge effects.
+- **Reading it:** a perfectly steady result has `dy ≡ 0` (the picture doesn't move frame-to-frame);
+  larger `|dy|` = more vertical jitter. The **sign** is just direction (up/down). The single
+  headline number per config is **`RMS dy`** over all frames — the overall vertical-shake
+  magnitude; lower is steadier. This is what ranks the configs in `SMOOTHING_RND.md` §8a.
+- **Units / comparability:** frames are resized to a fixed **640 px width** before correlation, so
+  `dy` is in pixels *at that analysis scale* (not native 4K). The scale is identical for every
+  video (square pixels, same width), so values are directly comparable across configs and across
+  the 16:9 cpp renders vs the 4:3 DJI reference.
+- **Scope:** phase correlation measures only *global translation* — exactly the whole-frame drift
+  that camera shake produces. It does not resolve local object motion, rotation, or zoom; for
+  "is the stabilized frame still bobbing as a whole?" that is the right quantity.
+
 ## Prerequisites
 
 - Build the C++ core CLIs (`gyroflow_cpp_stabilize` needs OpenCV; `gyroflow_cpp_validate` is
