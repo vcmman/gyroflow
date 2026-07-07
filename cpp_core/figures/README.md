@@ -22,6 +22,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `dji_headtohead_summary.png` | matched-pair `dy` (see `../EVALUATION_SUMMARY.md`) | DCR vs DJI in-camera, FOV-matched 4:3, run + bike |
 | `bike0005_dcr_4x3_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: our DCR 4:3 vs DJI 4:3 (16:9 ref) — FOV-matched |
 | `bike0005_dcr_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: original vs DCR vs DJI (16:9) |
+| `angular_velocity_raw_vs_smoothed.png` | `tools/angular_velocity_compare.py` | telemetry-domain: raw gyro vs smoothed (default/DCR) angular velocity, run + bike |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
@@ -170,6 +171,11 @@ Head-to-head against DJI RockSteady on matched same-scene pairs (see
 [`../EVALUATION_SUMMARY.md`](../EVALUATION_SUMMARY.md) §6): DCR ~4× steadier on running (violent
 bob), DJI ~1.3× steadier on smooth biking (frame-periphery residual).
 ![dji head-to-head](dji_headtohead_summary.png)
+
+### Camera angular velocity — raw vs smoothed (telemetry domain)
+How the smoothing (and DCR) attenuates the raw camera angular velocity while keeping intentional
+motion. Raw→smoothed RMS: run 58→16 °/s (−72 %), bike 28→7 °/s (−76 %).
+![angular velocity raw vs smoothed](angular_velocity_raw_vs_smoothed.png)
 
 ### Rust vs C++ default — port parity (`dy`)
 Same-metric head-to-head of the Rust and C++ **default** renders under identical params; the
