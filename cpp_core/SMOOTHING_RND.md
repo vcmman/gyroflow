@@ -315,6 +315,49 @@ So adaptive zoom buys either ~0 % black border at equal crop, or 20–48 % less 
 (zero) black border. Static gives up that trade — using it would make black borders **worse** at
 any comparable FOV budget.
 
+## 8d. Per-axis smoothing on top of `la1` — a real extra vertical win
+
+Tried per-axis smoothing (`--per-axis`, independent `smoothness_{pitch,yaw,roll}` on the three
+euler components) on the **DCR-off + 1 s look-ahead** (`la1`) config, to smooth the vertical
+axis harder than the pan.
+
+**Which euler axis is "vertical"?** Calibrated a telemetry proxy against the four known image-dy
+values: the first-difference RMS of the **stabilized optical axis' vertical component**
+(`fwd = R·(0,0,1)`, take `fwd.y`) correlates **0.999** with the rendered phaseCorrelate `dy`
+(≈2.36 px/°). A single-axis validate sweep then shows the vertical bob lives almost entirely in
+**euler[1]** — which maps to the confusingly-named `--smoothness-yaw` param (nalgebra pitch about
+Y = camera looking up/down). Smoothing euler[0] (`--smoothness-pitch`) or euler[2]
+(`--smoothness-roll`) moves the vertical proxy < 3 %.
+
+**Sweep (clip 0002, baseline `la1` = per-axis off), euler[1] smoothness up:**
+
+| euler[1] | vert dy proxy | frames req-zoom > 1.30 |
+|---|---|---|
+| off | 0 % | 0 |
+| 0.55 | −4 % | 1 |
+| 0.70 | −7 % | 4 |
+| 0.90 | −9 % | 12 |
+
+**Rendered confirmation** (full 4K, `la1` vs `la1 + euler[1]=0.9`, phaseCorrelate `dy` + black
+border, clip 0002):
+
+| config | vert dy RMS | black border mean / max | frames > 0.05 % |
+|---|---|---|---|
+| `la1` baseline | 1.372 px | 0.0137 % / 1.79 % | 2.3 % |
+| `la1` + euler[1]=0.9 | **1.152 px (−16 %)** | 0.0136 % / 1.49 % | 1.3 % |
+
+- **The real gain (−16 %) beats the proxy (−9 %)** — the linear proxy was calibrated on isotropic
+  configs and under-scales once per-axis reshapes the spectrum; the render is ground truth.
+- **Black border did not get worse.** The sweep flags 12 frames breaching the 130 % clamp, but
+  those are tiny-corner geometric black; the coarse detector (stride-5 / 480 px) barely samples
+  them, and the smoother path even reduces dark-content edge contact — mean flat, max down,
+  fraction of flagged frames 2.3 → 1.3 %. Reconfirms §8b (the near-black counter is dominated by
+  dark-scene / warp-edge false positives, not clamp black).
+- **Verdict:** on a bob-heavy clip, pushing the vertical euler axis (`--smoothness-yaw ≈0.9`) on
+  top of `la1` is a worthwhile, near-free −16 % vertical-shake improvement. Pan is untouched
+  (euler[2] left at 0.5). The only real cost is a handful of tiny clamp-black frames — kill them
+  by raising `max_zoom` to ~150 % or flooring the required FOV (§8b item 6).
+
 ---
 
 ## Bottom line & next steps
@@ -333,6 +376,9 @@ any comparable FOV budget.
   future buffer caps symmetric smoothing at ~1 s — DCR stays realizable, but the Gaussian and L1
   advantages shrink (they need >1 s future). Use **full-past forward + 1 s backward**, not a
   symmetric ±1 s window.
+- **Per-axis is a real extra win (§8d):** smoothing the vertical euler axis (euler[1] =
+  `--smoothness-yaw ≈0.9`) harder than the pan gives −16 % vertical shake on top of `la1`
+  (rendered), pan untouched, negligible black border. A cheap, orthogonal complement to DCR.
 
 ### Candidate work items
 1. Translation-domain residual stabilization (the actual visible-float fix).
@@ -343,6 +389,8 @@ any comparable FOV budget.
    in-camera-achievable numbers.
 6. (§8b) Raise `max_zoom` to ~160 % for DCR configs, or floor DCR's required FOV, to kill the
    handful of clamp-forced black-border frames.
+7. (§8d) Ship per-axis vertical smoothing as a default-on option on `la1` (euler[1]≈0.9,
+   euler[0]/[2]=0.5); confirm the −16 % on clip 0001 and pick the crop/gain sweet-spot yaw value.
 
 ### Reproduce
 ```sh
