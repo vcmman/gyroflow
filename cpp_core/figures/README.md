@@ -14,7 +14,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 |---|---|---|
 | `vertical_flow_la1_vs_dcr.png` | `tools/vertical_flow_compare.py` | per-frame global vertical shift `dy` (`cv2.phaseCorrelate`) — DCR off vs on |
 | `vertical_flow_all_configs.png` | `tools/vertical_flow_compare.py` | same, all five configs overlaid |
-| `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | same, plus a DJI in-camera reference per subplot — run 0001/0002 **and bike 0005** (default/DCR/gaussian via `--series`) |
+| `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | same, plus a DJI in-camera reference per subplot — run 0001/0002 **and bike 0005** (default/DCR via `--series`; default = orange, DJI = black dashed) |
 | `black_border_stats.png` | `tools/black_border_stats.py` | edge-connected near-black area per frame (mean/max + time series) |
 | `zoom_vs_maxzoom.png` | `tools/zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom (`1/fov`) vs the `max_zoom` clamp |
 | `rust_vs_cpp_default_dy.png` | `tools/rust_vs_cpp_dy.py` | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
@@ -120,7 +120,6 @@ MPLBACKEND=Agg python3 tools/vertical_flow_compare.py --dir "$CPP_OUT" --width 6
   --ref 0002 "$DJI_REF_DIR/DJI_20260625014927_0004_D.MP4" \
   --series bike0005 "default (offline)" "$BIKE_DIR/0005_D_cpp_default.mp4" \
   --series bike0005 "DCR (offline)"     "$BIKE_DIR/DJI_..._0005_D_cpp_dcr.mp4" \
-  --series bike0005 "gaussian σ0.5"     "$BIKE_DIR/0005_D_cpp_gauss05.mp4" \
   --ref bike0005 "$DJI_REF_BIKE/DJI_20260617031609_0004_D.MP4" \
   -o cpp_core/figures/vertical_flow_all_configs_vs_dji.png
 

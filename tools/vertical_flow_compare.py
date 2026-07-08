@@ -26,13 +26,16 @@ def main():
                     default=None,
                     help="explicit extra series, repeatable: --series bike0005 DCR /path/x.mp4. "
                          "Adds subplots for clips outside the --dir naming pattern.")
+    ap.add_argument("--cache", default=None, metavar="DIR",
+                    help="cache dir for per-video dy arrays (skip re-decoding on plot iterations)")
     ap.add_argument("-o", "--out", default="vertical_flow_compare.png")
     args = ap.parse_args()
 
     clips = ["0001", "0002"]
-    # (suffix, label, color) — one line per smoothing config
+    # (suffix, label, color) — one line per smoothing config.
+    # default is orange (NOT gray/black) so it stays clearly distinct from the black DJI ref.
     configs = [
-        ("",         "default (offline)",   "#7f7f7f"),
+        ("",         "default (offline)",   "#ff7f0e"),
         ("_dcr",     "DCR (offline)",        "#2ca02c"),
         ("_l1",      "L1 jerk-limit",        "#9467bd"),
         ("_la1",     "DCR off + 1s LA",      "#d62728"),
@@ -53,7 +56,22 @@ def main():
             clips.append(clip)
     # color per extra label: reuse the config palette by label match, else cycle spares
     label_color = {label: c for _s, label, c in configs}
-    spare = ["#ff7f0e", "#17becf", "#bcbd22", "#8c564b"]
+    spare = ["#17becf", "#bcbd22", "#8c564b", "#e377c2"]
+
+    # Optional dy cache (npy per video, keyed by basename+width) so plot iterations don't
+    # re-decode ~10-minute 4K clips.
+    def measure(p):
+        if args.cache:
+            os.makedirs(args.cache, exist_ok=True)
+            key = os.path.join(args.cache,
+                               f"{os.path.basename(p)}.w{args.width}.dy.npy")
+            if os.path.exists(key):
+                print(f"  (cached) {os.path.basename(p)}", flush=True)
+                return np.load(key)
+            dy = vertical_flow(p, args.width, args.max_frames)
+            np.save(key, dy)
+            return dy
+        return vertical_flow(p, args.width, args.max_frames)
 
     series = {}
     for clip in clips:
@@ -65,7 +83,7 @@ def main():
                     print(f"SKIP missing {p}")
                     continue
                 print(f"Analyzing {fn} ...", flush=True)
-                dy = vertical_flow(p, args.width, args.max_frames)
+                dy = measure(p)
                 series[(clip, label)] = dy
                 print(f"  -> {len(dy)} frames, RMS dy = {np.sqrt(np.mean(dy**2)):.3f} px", flush=True)
         for label, p in extra.get(clip, []):
@@ -73,14 +91,14 @@ def main():
                 print(f"SKIP missing {p}")
                 continue
             print(f"Analyzing {os.path.basename(p)} ...", flush=True)
-            dy = vertical_flow(p, args.width, args.max_frames)
+            dy = measure(p)
             series[(clip, label)] = dy
             print(f"  -> {len(dy)} frames, RMS dy = {np.sqrt(np.mean(dy**2)):.3f} px", flush=True)
         if clip in refs:
             p, label, _c = refs[clip]
             if os.path.exists(p):
                 print(f"Analyzing REF {os.path.basename(p)} ...", flush=True)
-                dy = vertical_flow(p, args.width, args.max_frames)
+                dy = measure(p)
                 series[(clip, label)] = dy
                 print(f"  -> {len(dy)} frames, RMS dy = {np.sqrt(np.mean(dy**2)):.3f} px", flush=True)
             else:
