@@ -183,6 +183,28 @@ jitter, 2–3×) with **5× lower** frame-to-frame roughness — the "cleaner DJ
 plot-scale + spectral-peakiness illusion. → `SMOOTHING_RND.md` §8i,
 `figures/dy_spectrum_ours_vs_dji.png`.
 
+**Independent replication — fresh footage (2026-07-08 shoot).** Two new matched pairs
+(`dji6_L/20260708` 0003/0004, stab-off, our DCR 16:9 render vs `dji6_R/20260708` 0005/0006,
+DJI in-camera 4:3; durations match to <1 s). dy RMS px @640, band split, roughness:
+
+| pair | series | dy RMS | <1 Hz | 1–4 Hz | 4–15 Hz | roughness |
+|---|---|---:|---:|---:|---:|---:|
+| A (277 s, calm) | original | 1.511 | 0.468 | 0.672 | 1.269 | 2.207 |
+| A | **our DCR** | **0.327** | 0.313 | **0.078** | **0.055** | **0.096** |
+| A | DJI in-camera | 0.334 | 0.308 | 0.104 | 0.079 | 0.134 |
+| B (65 s, violent) | original | 12.595 | 2.861 | 10.398 | 6.505 | 10.643 |
+| B | **our DCR** | **1.953** | 1.365 | **1.282** | **0.554** | **0.975** |
+| B | DJI in-camera | 5.951 | 2.267 | 4.564 | 3.073 | 5.300 |
+
+→ Replicates every prior conclusion on unseen footage: on the **violent** clip (the most violent
+measured, original 12.6 px) our DCR is **3.0× steadier overall** (shake removed −84 % vs DJI's
+−53 %), 3.6× in the bob band, **5.5× in 4–15 Hz jitter**, 5.4× lower roughness — and this time DJI
+fails to contain even the high frequencies, so the gap is robust to the 16:9-vs-4:3 caveat (~2 %
+on violent clips). On the **calm** clip the two tie (0.327 vs 0.334) with ours slightly better in
+every band — as-delivered framing; at matched 4:3 this could revert to a DJI edge (periphery, §6).
+Our residual again concentrates <1 Hz (the §3 translational parallax); DJI's stays bob-dominated
+(§8i). Outputs: `dji6_L/20260708/000{3,4}_D_cpp_dcr.mp4`.
+
 ## 7. What's confirmed & what's next
 
 **Confirmed and landed:** DCR (`--enhanced`) as the Tier-1 stabilization enhancement — parity-safe,
