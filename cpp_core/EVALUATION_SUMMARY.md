@@ -52,22 +52,32 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
 The port reproduces Rust on the actual pixels; all downstream comparisons use the C++ renderer as
 a faithful stand-in for Gyroflow. Detail + figure: `COMPARISON.md` §4.
 
-## 3. Smoothing configs surveyed
+## 3. Consolidated smoothing-config comparison (all experiments)
 
-Rendered `dy` RMS across smoothing options (run 0001 / 0002), all offline unless noted:
+Every smoothing config evaluated this session, on two metrics: **`dy`** = rendered phaseCorrelate
+vertical-shake RMS (px @640, ↓ = steadier / less bob *amplitude*) and **`accel`** = angular
+acceleration RMS (°/s², telemetry, ↓ = smoother path; the clean smoothness discriminator, §8f).
+All offline, smoothness 0.5, 16:9, adaptive zoom max 130 %. `dy` needs a render (`—` = not rendered
+on that clip); `accel` is computed from the smoothed quaternions (available for all).
 
-| config | 0001 | 0002 | note |
-|---|---:|---:|---|
-| default (Gyroflow scalar) | 0.675 | 1.369 | golden baseline |
-| **DCR (`--enhanced`)** | **0.469** | **0.896** | −31/−35 %, ships |
-| per-axis euler[1]=0.9 | 0.508 | 1.152 | clip-specific, excluded |
-| L1 jerk-limit (other branch) | 0.356 | 0.825 | lowest, but +crop; not on this branch |
-| DCR-off + 1 s look-ahead | 0.675 | 1.372 | ≡ default (look-ahead alone ≠ shake) |
+| config | run0001 `dy`·`accel` | run0002 `dy`·`accel` | bike0005 `dy`·`accel` | verdict |
+|---|---|---|---|---|
+| default (Gyroflow) | 0.675 · 49 | 1.369 · 93 | 0.320 · 17 | golden baseline |
+| **DCR (`--enhanced`)** | **0.469** · 33 | **0.896** · 43 | 0.315 · 15 | **shipped default** — best `dy` |
+| per-axis (yaw 0.9) | 0.508 · 31 | 1.152 · 42 | — · 9 | excluded (§8e) — clip-specific |
+| DCR + per-axis @130 | 0.386 · — | 0.902 · — | — · — | unshippable — 8.6 % black border (§8e) |
+| Gaussian σ0.4 | 0.712 · 29 | 1.050 · 32 | — · 20 | opt-in (§8g) |
+| Gaussian σ0.5 | 0.596 · **20** | 0.988 · **24** | 0.325 · **13** | opt-in — best `accel` |
+| L1 (match-default) | **0.356** · 18 | 0.825 · 32 | — · 9 | other branch; lowest `dy` on 0001, +crop |
+| DCR-off + 1 s look-ahead | 0.675 · 49 | 1.372 · — | — · — | ≡ default (look-ahead alone ≠ shake) |
 
-Findings: once DCR is off, truncating look-ahead to 1 s does **not** change per-frame shake — the
-bob rejection comes from the short time-constant, not the far future (relevant to in-camera
-realizability). L1 is marginally best on shake but costs more crop and lives on a different branch.
-→ `SMOOTHING_RND.md` §8a, §5–7.
+**Two objectives, two winners:** **DCR minimises `dy` (bob amplitude)** — the "is it steady"
+metric — and ships as the default. **Gaussian σ0.5 / L1 minimise `accel` (path smoothness)** but do
+not match DCR on `dy` → they trade amplitude for smoothness (kept opt-in, §8g). On **bike** (smooth
+footage) every config ties on `dy` (~0.31–0.33); only `accel` separates them. Once DCR is off,
+1 s look-ahead does not change `dy` (bob rejection is the short time-constant, not the far future).
+Sources: `SMOOTHING_RND.md` §8a (dy), §8f/§8g (accel), §8e (Tier-1 matrix); Gaussian/L1 from
+branches `claude/gaussian-smoothing` / `claude/speed-bump-jolt-rnd`.
 
 ## 4. Black borders & zoom
 
