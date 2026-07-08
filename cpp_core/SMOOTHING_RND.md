@@ -503,6 +503,45 @@ exactly. Figure: `zoom_lookahead_causal_vs_1s.png`.
 tracking already gives 0) but to make the real-time zoom as smooth and crop-efficient as the offline
 result. Offline (`look_ahead_s < 0`) stays the default and is bit-identical / golden.
 
+## 8i. Spectral shape of the residual — why DJI's dy *looks* cleaner but isn't
+
+Visual impression from the dy traces (run clips): DJI's residual looks like a clean low-frequency
+signal while ours, though smaller in RMS, looks spectrally "busier". Band-split analysis of the
+residual dy (Welch PSD, fps 29.97; RMS px per band):
+
+| clip | config | <1 Hz | 1–4 Hz (bob) | 4–15 Hz (jitter) | roughness* | centroid | flatness |
+|---|---|---:|---:|---:|---:|---:|---:|
+| run 0001 | DCR | 0.401 | 0.216 | 0.054 | 0.120 | 0.77 Hz | 0.044 |
+| run 0001 | DJI | 1.314 | **1.396** | 0.168 | 0.654 | 1.40 Hz | 0.032 |
+| run 0002 | DCR | 0.676 | 0.333 | 0.143 | 0.220 | 0.72 Hz | 0.106 |
+| run 0002 | DJI | 1.389 | **3.539** | 0.324 | 1.237 | 1.41 Hz | 0.021 |
+| bike | DCR | 0.274 | 0.059 | 0.095 | 0.165 | — | — |
+| bike | DJI | 0.288 | 0.070 | 0.087 | 0.144 | — | — |
+
+\*roughness = RMS of frame-to-frame dy change (the jitter-perception proxy).
+
+**The impression is an illusion — three findings (run clips):**
+1. **Ours is lower in every band, absolutely** — including the 4–15 Hz jitter band (2–3× lower)
+   and frame-to-frame roughness (**5× lower**). Under *any* perceptual frequency weighting our
+   residual is steadier; there is no hidden high-frequency penalty.
+2. **DJI's residual is not "low-frequency"** — it is the **running cadence, un-removed**: a single
+   dominant spectral peak at 1.9 Hz (run 0001, exactly the clip's bob peak) / 1.4 Hz (run 0002),
+   sitting in the *worst* band (1–4 Hz bob, RMS 1.4–3.5 px). Its spectral centroid is actually
+   *higher* than ours (1.4 vs 0.7–0.8 Hz).
+3. **Why it looks "clean" vs our "complex":** DJI's spectrum is *peaky* (flatness 0.02–0.03) — one
+   strong periodic component reads as a tidy sinusoid to the eye. We removed that peak; what's left
+   is small broadband residual with no dominant component (flatness up to 0.11), which *reads* as
+   noise — amplified by the plot scale (DJI's ±4–8 px trace compresses our ±1 px trace into a fuzzy
+   band around zero). Zoomed to its own scale, our trace is the smoother one (roughness 5× lower).
+
+**One honest nuance:** a rhythmic, predictable sway (DJI's residual) can be perceptually more
+"tolerable" than unstructured residual of equal size because viewers read it as natural motion.
+But it is not of equal size — ours is 2–10× smaller in every band. Our remaining <1 Hz residual
+(0.3–0.7 px) is the translational-parallax float of §3, the known next frontier. On **bike** the
+bands are all within noise of each other, and DJI's roughness is slightly better than DCR's
+(0.144 vs 0.165) — consistent with §6 (periphery, not smoothing). Figure:
+`dy_spectrum_ours_vs_dji.png`.
+
 ---
 
 ## Bottom line & next steps

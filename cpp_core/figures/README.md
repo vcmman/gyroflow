@@ -26,6 +26,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `angular_derivatives_compare.png` | `tools/angular_derivatives_compare.py` | angular velocity/accel/jerk RMS by config — same ranking at every order (accel discriminates most, jerk redundant); §8f |
 | `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov`, 5 configs (incl. gaussian + L1) | dynamic vs static zoom black border by config — dynamic ≈0 for all; static exposes each config's crop-demand shape (L1 capped, gaussian peaky); §8c′ |
 | `zoom_lookahead_causal_vs_1s.png` | validate `--zoom-look-ahead` (offline/causal/1s) | FOV look-ahead: black border 0% for all modes; 1s look-ahead removes the causal zoom pops (ramps vs snaps); §8h |
+| `dy_spectrum_ours_vs_dji.png` | Welch PSD of cached dy | residual spectrum: DJI = one dominant cadence peak (reads "clean", is the un-removed bob); ours lower in every band, 5× lower roughness; §8i |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).

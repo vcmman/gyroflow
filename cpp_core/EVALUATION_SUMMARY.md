@@ -175,6 +175,14 @@ periphery). Re-rendered at matched 4:3:
 is edge/periphery treatment, plus a possible wider-FOV (lighter distortion-correction) advantage we
 could not fully measure (DJI's output FOV is not in telemetry).
 
+**Spectral note (why DJI's residual can *look* cleaner):** DJI's run residual is one dominant
+periodic component — the running cadence it did not remove (peak 1.4–1.9 Hz, in the worst bob
+band) — which reads as a tidy sinusoid; ours removed that peak, leaving small broadband residual
+that *reads* as noise. Band-split analysis shows ours is lower in **every** band (incl. 4–15 Hz
+jitter, 2–3×) with **5× lower** frame-to-frame roughness — the "cleaner DJI" impression is a
+plot-scale + spectral-peakiness illusion. → `SMOOTHING_RND.md` §8i,
+`figures/dy_spectrum_ours_vs_dji.png`.
+
 ## 7. What's confirmed & what's next
 
 **Confirmed and landed:** DCR (`--enhanced`) as the Tier-1 stabilization enhancement — parity-safe,
