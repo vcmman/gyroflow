@@ -61,6 +61,7 @@ void usage(const char* prog) {
     std::cerr << "Usage: " << prog
               << " <input.mp4> --telemetry <file.json> -o <output.mp4>\n"
               << "  Stabilization: [--max-zoom 130] [--zoom-method envelope|gaussian]"
+              << " [--zoom-look-ahead -1]  (>=0 = in-camera FOV look-ahead s; smooth zoom, no pops)"
               << " [--no-adaptive-zoom] [--fov 1.0]\n"
               << "                 [--per-axis --smoothness-pitch/-yaw/-roll 0..1]\n"
               << "                 [--enhanced]  (recommended preset: DCR on; -31..35% vertical shake)\n"
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
     bool adaptive_zoom = true;
     double max_zoom = 130.0;
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
+    double zoom_look_ahead = -1.0;         // <0 = offline; >=0 = real-time FOV look-ahead (s)
     bool per_axis = false;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     bool dcr = false;
@@ -122,6 +124,7 @@ int main(int argc, char** argv) {
         else if (a == "--no-adaptive-zoom") adaptive_zoom = false;
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
         else if (a == "--zoom-method") zoom_method = next("--zoom-method");
+        else if (a == "--zoom-look-ahead") zoom_look_ahead = std::stod(next("--zoom-look-ahead"));
         else if (a == "--per-axis") per_axis = true;
         else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
         else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
@@ -277,6 +280,7 @@ int main(int argc, char** argv) {
         az.method = (zoom_method == "gaussian" || zoom_method == "0")
                         ? ZoomMethod::GaussianFilter
                         : ZoomMethod::EnvelopeFollower;
+        az.look_ahead_s = zoom_look_ahead;
         std::cout << "Computing adaptive zoom (window " << az.window_s << " s, max zoom "
                   << max_zoom << "%, method "
                   << (az.method == ZoomMethod::GaussianFilter ? "gaussian" : "envelope")

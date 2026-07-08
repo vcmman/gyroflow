@@ -32,6 +32,15 @@ struct AdaptiveZoomParams {
     double fov_algorithm_margin = 2.0; // pixels trimmed from the source border ring
     std::pair<double, double> center_offset = {0.0, 0.0};  // adaptive_zoom_center_offset
     ZoomMethod method = ZoomMethod::EnvelopeFollower;       // adaptive_zoom_method (default 1)
+
+    // In-camera / real-time finite look-ahead for the FOV temporal smoothing (EnvelopeFollower
+    // only). < 0 (default) = offline: the current non-causal two-pass envelope over the whole
+    // clip (bit-identical / golden). >= 0 = a real-time causal envelope that may look at only
+    // this many seconds of future: a look-ahead-minimum target (min of required FOV over
+    // [i, i+W]) fed to an asymmetric one-pole EMA (fast when tightening, slow when opening),
+    // with a min-guard so applied <= required (never a border). 0 = fully causal (snaps in on
+    // shakes); 1.0 = 1 s of anticipation (ramps in). See SMOOTHING_RND.md §8h.
+    double look_ahead_s = -1.0;
 };
 
 // Returns one FOV multiplier per entry in frame_timestamps_ms (same order). FOV < 1 zooms

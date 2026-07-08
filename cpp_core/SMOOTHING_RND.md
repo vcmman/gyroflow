@@ -465,6 +465,44 @@ RMS by config:
   per-axis buys it with black borders and inconsistent `dy`). Figures:
   `angular_derivatives_compare.png`, `angular_velocity_raw_vs_smoothed.png`.
 
+> (§8g — Gaussian *smoothing* kernel — lives on branch `claude/gaussian-smoothing`.)
+
+## 8h. FOV look-ahead for dynamic zoom — does it help black borders? (No; it fixes zoom pops)
+
+The offline dynamic zoom smooths the per-frame required FOV with a non-causal two-pass envelope
+(uses the whole clip's future). For an in-camera build you can buffer only ~1 s of future, so I
+added a real-time finite-look-ahead FOV envelope (`AdaptiveZoomParams::look_ahead_s`,
+`--zoom-look-ahead S`; `<0` = offline/unchanged, `0` = causal, `1` = 1 s): a look-ahead **minimum**
+of required FOV over `[i, i+W]` drives an asymmetric one-pole EMA (fast tighten / slow open) with a
+`min(state, required)` guard. Measured on run 0001/0002 + bike 0005, offline vs causal (0 s) vs 1 s:
+
+| clip | mode | black border | clamp-BB | mean zoom | zoom \|Δ\| max | zoom \|Δ\| RMS |
+|---|---|---:|---:|---:|---:|---:|
+| run 0001 | offline | 0.00 % | 0.00 % | 1.002 | 0.005 | 0.0013 |
+| run 0001 | causal 0 s | 0.00 % | 0.00 % | 0.908 | **0.261** | 0.0130 |
+| run 0001 | **look-ahead 1 s** | 0.00 % | 0.00 % | 0.997 | **0.030** | 0.0024 |
+| run 0002 | causal 0 s | 0.00 % | 0.00 % | 0.892 | 0.114 | 0.0141 |
+| run 0002 | **look-ahead 1 s** | 0.00 % | 0.00 % | 0.972 | 0.021 | 0.0019 |
+| bike 0005 | causal 0 s | 0.00 % | 0.00 % | 0.871 | 0.068 | 0.0067 |
+| bike 0005 | **look-ahead 1 s** | 0.00 % | 0.00 % | 0.927 | 0.028 | 0.0016 |
+
+**Black border is NOT improved by look-ahead — it is already 0 % for every mode.** The envelope is
+**min-tracking** (`applied = min(state, required)`), so applied FOV never exceeds required regardless
+of how much future it sees; a border can only come from the `max_zoom` clamp (a per-frame required
+property, look-ahead-independent, and 0 % here). So the honest answer to "does 1 s future reduce
+black borders": **no** — there were none to remove.
+
+**What 1 s look-ahead actually fixes is the *zoom transition*.** Without future, the causal envelope
+**snaps** the crop in the instant a shake arrives — a visible zoom *pop* (max per-frame zoom jump
+**0.07–0.26**, RMS ~10× rougher than offline) — and it also wastes ~9 % more average crop (it sits
+tight longer). 1 s of look-ahead lets the crop **ramp in** before the shake: it cuts the max pop
+~5–10× (to 0.02–0.03), the RMS jitter to ~1.5× offline, and recovers offline's mean crop almost
+exactly. Figure: `zoom_lookahead_causal_vs_1s.png`.
+
+**Verdict:** use 1 s FOV look-ahead for an **in-camera** build — not to reduce black borders (min-
+tracking already gives 0) but to make the real-time zoom as smooth and crop-efficient as the offline
+result. Offline (`look_ahead_s < 0`) stays the default and is bit-identical / golden.
+
 ---
 
 ## Bottom line & next steps

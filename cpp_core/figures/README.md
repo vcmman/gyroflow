@@ -25,6 +25,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `angular_velocity_raw_vs_smoothed.png` | `tools/angular_velocity_compare.py` | telemetry-domain: raw gyro vs smoothed (default/DCR) angular velocity, run 0001/0002 + bike |
 | `angular_derivatives_compare.png` | `tools/angular_derivatives_compare.py` | angular velocity/accel/jerk RMS by config — same ranking at every order (accel discriminates most, jerk redundant); §8f |
 | `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov`, 5 configs (incl. gaussian + L1) | dynamic vs static zoom black border by config — dynamic ≈0 for all; static exposes each config's crop-demand shape (L1 capped, gaussian peaky); §8c′ |
+| `zoom_lookahead_causal_vs_1s.png` | validate `--zoom-look-ahead` (offline/causal/1s) | FOV look-ahead: black border 0% for all modes; 1s look-ahead removes the causal zoom pops (ramps vs snaps); §8h |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).

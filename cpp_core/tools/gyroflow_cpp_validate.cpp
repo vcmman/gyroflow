@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
     bool keep_sensor = false;
     int out_w_override = 0, out_h_override = 0;
     std::string zoom_method = "envelope";  // envelope (1, default) | gaussian (0)
+    double zoom_look_ahead = -1.0;         // <0 = offline; >=0 = real-time FOV look-ahead (s)
     bool per_axis = false;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     bool dcr = false;
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
         if (a == "--frames") frames = std::stol(next("--frames"));
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
         else if (a == "--zoom-method") zoom_method = next("--zoom-method");
+        else if (a == "--zoom-look-ahead") zoom_look_ahead = std::stod(next("--zoom-look-ahead"));
         else if (a == "--per-axis") per_axis = true;
         else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
         else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
@@ -136,6 +138,7 @@ int main(int argc, char** argv) {
     az.method = (zoom_method == "gaussian" || zoom_method == "0")
                     ? ZoomMethod::GaussianFilter
                     : ZoomMethod::EnvelopeFollower;
+    az.look_ahead_s = zoom_look_ahead;
     std::vector<double> raw_fovs;
     const std::vector<double> fovs =
         computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az,

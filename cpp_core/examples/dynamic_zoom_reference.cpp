@@ -51,6 +51,7 @@
 //  The demo at the bottom plugs in a trivial rotation so the file compiles and runs; replace it.
 // =============================================================================================
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -117,6 +118,14 @@ struct Params {
     double center_off_x   = 0.0;    // optional crop-center offset, as a FRACTION of width/height
     double center_off_y   = 0.0;
     int    ring_divisions = 121;    // border ring density per side (denser = more robust inscribe)
+
+    // In-camera / real-time finite look-ahead for STAGE 2 (EnvelopeFollower only):
+    //   < 0  -> OFFLINE two-pass envelope over the whole clip (uses all future; smoothest).
+    //   >= 0 -> real-time causal envelope that sees only this many seconds of future.
+    //           0 = fully causal (crop SNAPS in on a shake -> a zoom pop); 1.0 = 1 s anticipation
+    //           (crop RAMPS in before the shake). It does NOT change black borders (the min-guard
+    //           already gives zero) — it makes the real-time zoom track smooth, near-offline.
+    double look_ahead_s   = -1.0;
 };
 
 // ============================================================================================= //
@@ -268,6 +277,32 @@ inline std::vector<double> gaussianFilterSmooth(const std::vector<double>& fov, 
 }
 
 // ============================================================================================= //
+//  STAGE 2c : real-time finite-look-ahead envelope (in-camera).  See Params::look_ahead_s.
+//  A look-ahead MINIMUM of required FOV over [i, i+W] drives an asymmetric one-pole EMA (fast
+//  tighten / slow open); the min(state, required) guard keeps applied <= required (no border).
+//  W == 0 is fully causal (snaps in on shakes); W = 1 s ramps the crop in beforehand.
+// ============================================================================================= //
+inline std::vector<double> envelopeLookAhead(const std::vector<double>& req, double fps,
+                                             double window_s, double look_ahead_s) {
+    const size_t n = req.size();
+    if (n == 0) return {};
+    const long W = look_ahead_s > 0.0 ? std::lround(look_ahead_s * fps) : 0;
+    const double a_fast = 1.0 - std::exp(-(1.0 / fps) / 0.2);        // tighten (reactive)
+    const double a_slow = 1.0 - std::exp(-(1.0 / fps) / window_s);   // open (smooth)
+    std::vector<double> out(n);
+    double state = req[0];
+    for (size_t i = 0; i < n; ++i) {
+        const size_t hi = std::min<size_t>(n - 1, i + static_cast<size_t>(W));
+        double target = req[i];
+        for (size_t j = i + 1; j <= hi; ++j) target = std::fmin(target, req[j]);  // look-ahead min
+        const double a = (target < state) ? a_fast : a_slow;
+        state += a * (target - state);
+        out[i] = std::fmin(state, req[i]);   // min-guard: never crop less than the frame needs
+    }
+    return out;
+}
+
+// ============================================================================================= //
 //  computeDynamicZoom  --  the whole pipeline (STAGE 1 -> 2 -> 3).
 //
 //  INPUT :
@@ -312,8 +347,11 @@ inline std::vector<double> computeDynamicZoom(const Params& p, int num_frames,
     std::vector<double> fov;
     if (p.method == Method::GaussianFilter) {
         fov = gaussianFilterSmooth(required_fov, p.window_s, p.fps);
+    } else if (p.look_ahead_s >= 0.0) {
+        // Real-time in-camera envelope with a finite future window (STAGE 2c).
+        fov = envelopeLookAhead(required_fov, p.fps, p.window_s, p.look_ahead_s);
     } else {
-        // EnvelopeFollower: a wide window pass (tau = window_s) then a short reactive pass
+        // OFFLINE EnvelopeFollower: a wide window pass (tau = window_s) then a short reactive pass
         // (tau = 0.2 s) that lets the crop re-open a little faster once motion subsides.
         const double a1 = 1.0 - std::exp(-(1.0 / p.fps) / p.window_s);
         const double a2 = 1.0 - std::exp(-(1.0 / p.fps) / 0.2);

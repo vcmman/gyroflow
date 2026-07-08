@@ -227,6 +227,34 @@ std::vector<double> envelopeFollower(const std::vector<double>& a, double coeff)
     return out;
 }
 
+// Real-time (finite look-ahead) envelope for the FOV series. Causal EMA driven by a look-ahead
+// MINIMUM of the required FOV over [i, i+W]: the future window lets the crop start tightening up
+// to W frames before a shake arrives (a smooth ramp) instead of snapping in at the shake frame.
+// Asymmetric time constants mimic the offline two-pass envelope (fast tighten, slow open). The
+// final min(state, required) guard keeps applied <= required, so it never adds a border — exactly
+// as the offline min-tracking envelope. W == 0 is fully causal (target == required, snaps in).
+std::vector<double> envelopeLookAhead(const std::vector<double>& req, double fps, double window_s,
+                                      double look_ahead_s) {
+    const std::size_t n = req.size();
+    if (n == 0) return {};
+    const long W = std::max<long>(0, std::lround(look_ahead_s * fps));
+    const double a_fast = 1.0 - std::exp(-(1.0 / fps) / 0.2);       // tighten (reactive)
+    const double a_slow = 1.0 - std::exp(-(1.0 / fps) / window_s);  // open (smooth)
+
+    std::vector<double> out(n);
+    double state = req[0];
+    for (std::size_t i = 0; i < n; ++i) {
+        // look-ahead minimum over the buffered future window [i, i+W]
+        const std::size_t hi = std::min<std::size_t>(n - 1, i + static_cast<std::size_t>(W));
+        double target = req[i];
+        for (std::size_t j = i + 1; j <= hi; ++j) target = std::min(target, req[j]);
+        const double a = (target < state) ? a_fast : a_slow;
+        state += a * (target - state);
+        out[i] = std::min(state, req[i]);  // min-guard: never crop less than the frame needs
+    }
+    return out;
+}
+
 } // namespace
 
 std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timestamps_ms,
@@ -312,8 +340,11 @@ std::vector<double> computeAdaptiveFovs(const std::vector<double>& frame_timesta
     if (az.method == ZoomMethod::GaussianFilter) {
         // method == 0: rolling-min over the window, then Gaussian convolution.
         fov_values = gaussianFilterSmooth(fov_values, az.window_s, fps);
+    } else if (az.look_ahead_s >= 0.0) {
+        // Real-time finite look-ahead envelope (in-camera). See envelopeLookAhead / §8h.
+        fov_values = envelopeLookAhead(fov_values, fps, az.window_s, az.look_ahead_s);
     } else {
-        // method == 1: two-pass min-tracking envelope follower (Gyroflow default).
+        // method == 1: two-pass min-tracking envelope follower (Gyroflow default, offline).
         const double first_alpha = 1.0 - std::exp(-(1.0 / fps) / az.window_s);
         const double second_alpha = 1.0 - std::exp(-(1.0 / fps) / 0.2);
         fov_values = envelopeFollower(fov_values, first_alpha);
