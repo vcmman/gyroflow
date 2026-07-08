@@ -22,6 +22,10 @@ def main():
     ap.add_argument("--ref", nargs=2, action="append", metavar=("CLIP", "VIDEO"), default=None,
                     help="optional per-clip reference video (e.g. DJI in-camera), repeatable: "
                          "--ref 0001 /path/DJI_ref.MP4. Omit to plot configs only.")
+    ap.add_argument("--series", nargs=3, action="append", metavar=("CLIP", "LABEL", "VIDEO"),
+                    default=None,
+                    help="explicit extra series, repeatable: --series bike0005 DCR /path/x.mp4. "
+                         "Adds subplots for clips outside the --dir naming pattern.")
     ap.add_argument("-o", "--out", default="vertical_flow_compare.png")
     args = ap.parse_args()
 
@@ -40,15 +44,35 @@ def main():
     for clip, path in (args.ref or []):
         refs[clip] = (path, "DJI in-camera", "#000000")
 
+    # Explicit extra series (--series) for clips whose files don't follow the --dir pattern.
+    # New clips are appended as additional subplots in first-appearance order.
+    extra = {}   # clip -> [(label, path), ...]
+    for clip, label, path in (args.series or []):
+        extra.setdefault(clip, []).append((label, path))
+        if clip not in clips:
+            clips.append(clip)
+    # color per extra label: reuse the config palette by label match, else cycle spares
+    label_color = {label: c for _s, label, c in configs}
+    spare = ["#ff7f0e", "#17becf", "#bcbd22", "#8c564b"]
+
     series = {}
     for clip in clips:
-        for suffix, label, _c in configs:
-            fn = f"{clip}_D_cpp_stabilized{suffix}.mp4"
-            p = os.path.join(args.dir, fn)
+        if clip not in extra:   # pattern-based configs only for --dir-style clips
+            for suffix, label, _c in configs:
+                fn = f"{clip}_D_cpp_stabilized{suffix}.mp4"
+                p = os.path.join(args.dir, fn)
+                if not os.path.exists(p):
+                    print(f"SKIP missing {p}")
+                    continue
+                print(f"Analyzing {fn} ...", flush=True)
+                dy = vertical_flow(p, args.width, args.max_frames)
+                series[(clip, label)] = dy
+                print(f"  -> {len(dy)} frames, RMS dy = {np.sqrt(np.mean(dy**2)):.3f} px", flush=True)
+        for label, p in extra.get(clip, []):
             if not os.path.exists(p):
                 print(f"SKIP missing {p}")
                 continue
-            print(f"Analyzing {fn} ...", flush=True)
+            print(f"Analyzing {os.path.basename(p)} ...", flush=True)
             dy = vertical_flow(p, args.width, args.max_frames)
             series[(clip, label)] = dy
             print(f"  -> {len(dy)} frames, RMS dy = {np.sqrt(np.mean(dy**2)):.3f} px", flush=True)
@@ -66,7 +90,14 @@ def main():
     if len(clips) == 1:
         axes = [axes]
     for ax, clip in zip(axes, clips):
-        plot_list = list(configs)
+        if clip in extra:
+            plot_list = []
+            for label, _p in extra[clip]:
+                c = label_color.get(label) or (spare.pop(0) if spare else "#444444")
+                label_color[label] = c
+                plot_list.append(("x", label, c))
+        else:
+            plot_list = list(configs)
         if clip in refs:
             rp, rlabel, rcolor = refs[clip]
             plot_list = plot_list + [(None, rlabel, rcolor)]
