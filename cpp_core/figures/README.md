@@ -14,7 +14,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 |---|---|---|
 | `vertical_flow_la1_vs_dcr.png` | `tools/vertical_flow_compare.py` | per-frame global vertical shift `dy` (`cv2.phaseCorrelate`) — DCR off vs on |
 | `vertical_flow_all_configs.png` | `tools/vertical_flow_compare.py` | same, all five configs overlaid |
-| `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | same, plus a DJI in-camera reference per subplot — run 0001/0002 **and bike 0005** (default/DCR via `--series`; default = orange, DJI = black dashed) |
+| `vertical_flow_all_configs_vs_dji.png` | `tools/vertical_flow_compare.py` | dy vs DJI reference per subplot — run 0001/0002 (default/DCR/gaussian σ0.5) + bike 0005 (default/DCR); default = orange, DJI = black dashed |
 | `black_border_stats.png` | `tools/black_border_stats.py` | edge-connected near-black area per frame (mean/max + time series) |
 | `zoom_vs_maxzoom.png` | `tools/zoom_vs_maxzoom.py` | required zoom (`1/raw_fov`) vs applied zoom (`1/fov`) vs the `max_zoom` clamp |
 | `rust_vs_cpp_default_dy.png` | `tools/rust_vs_cpp_dy.py` | `dy` of Rust vs C++ **default** renders, identical params — port-parity check |
@@ -113,9 +113,14 @@ done
 ```sh
 CPP_OUT="$RUN/cpp_out"
 
-# Vertical shake — all configs + optional DJI in-camera reference per clip (--ref).
-# Clips outside the --dir naming pattern (e.g. bike renders) are added with --series.
+# Vertical shake vs DJI reference (--ref per clip). --configs filters the --dir pattern
+# suffixes ("" = default, "_dcr" = DCR, ...); --series adds explicit files, either extra
+# lines on a pattern clip (e.g. the gaussian run renders) or a whole new subplot (bike).
+# --cache makes plot iterations instant (per-video dy .npy).
 MPLBACKEND=Agg python3 tools/vertical_flow_compare.py --dir "$CPP_OUT" --width 640 \
+  --cache /tmp/dycache --configs ",_dcr" \
+  --series 0001 "gaussian σ0.5" "$CPP_OUT/0001_D_cpp_gauss05.mp4" \
+  --series 0002 "gaussian σ0.5" "$CPP_OUT/0002_D_cpp_gauss05.mp4" \
   --ref 0001 "$DJI_REF_DIR/DJI_20260625014752_0002_D.MP4" \
   --ref 0002 "$DJI_REF_DIR/DJI_20260625014927_0004_D.MP4" \
   --series bike0005 "default (offline)" "$BIKE_DIR/0005_D_cpp_default.mp4" \

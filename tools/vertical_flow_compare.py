@@ -26,6 +26,9 @@ def main():
                     default=None,
                     help="explicit extra series, repeatable: --series bike0005 DCR /path/x.mp4. "
                          "Adds subplots for clips outside the --dir naming pattern.")
+    ap.add_argument("--configs", default=None,
+                    help="comma-separated config SUFFIXES to include from the --dir pattern "
+                         "(e.g. ',_dcr' = default+DCR only); default = all")
     ap.add_argument("--cache", default=None, metavar="DIR",
                     help="cache dir for per-video dy arrays (skip re-decoding on plot iterations)")
     ap.add_argument("-o", "--out", default="vertical_flow_compare.png")
@@ -41,14 +44,18 @@ def main():
         ("_la1",     "DCR off + 1s LA",      "#d62728"),
         ("_dcr_la1", "DCR + 1s LA",          "#1f77b4"),
     ]
+    if args.configs is not None:
+        keep = set(args.configs.split(","))
+        configs = [c for c in configs if c[0] in keep]
 
     # Per-clip extra reference clips from --ref (e.g. DJI in-camera stabilized takes).
     refs = {}
     for clip, path in (args.ref or []):
         refs[clip] = (path, "DJI in-camera", "#000000")
 
-    # Explicit extra series (--series) for clips whose files don't follow the --dir pattern.
-    # New clips are appended as additional subplots in first-appearance order.
+    # Explicit extra series (--series). For a pattern clip (0001/0002) they ADD lines to its
+    # subplot; for a new clip name they create an additional subplot (first-appearance order).
+    pattern_clips = list(clips)
     extra = {}   # clip -> [(label, path), ...]
     for clip, label, path in (args.series or []):
         extra.setdefault(clip, []).append((label, path))
@@ -75,7 +82,7 @@ def main():
 
     series = {}
     for clip in clips:
-        if clip not in extra:   # pattern-based configs only for --dir-style clips
+        if clip in pattern_clips:
             for suffix, label, _c in configs:
                 fn = f"{clip}_D_cpp_stabilized{suffix}.mp4"
                 p = os.path.join(args.dir, fn)
@@ -108,14 +115,11 @@ def main():
     if len(clips) == 1:
         axes = [axes]
     for ax, clip in zip(axes, clips):
-        if clip in extra:
-            plot_list = []
-            for label, _p in extra[clip]:
-                c = label_color.get(label) or (spare.pop(0) if spare else "#444444")
-                label_color[label] = c
-                plot_list.append(("x", label, c))
-        else:
-            plot_list = list(configs)
+        plot_list = list(configs) if clip in pattern_clips else []
+        for label, _p in extra.get(clip, []):
+            c = label_color.get(label) or (spare.pop(0) if spare else "#444444")
+            label_color[label] = c
+            plot_list.append(("x", label, c))
         if clip in refs:
             rp, rlabel, rcolor = refs[clip]
             plot_list = plot_list + [(None, rlabel, rcolor)]
