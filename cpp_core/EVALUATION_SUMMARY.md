@@ -79,6 +79,26 @@ footage) every config ties on `dy` (~0.31–0.33); only `accel` separates them. 
 Sources: `SMOOTHING_RND.md` §8a (dy), §8f/§8g (accel), §8e (Tier-1 matrix); Gaussian/L1 from
 branches `claude/gaussian-smoothing` / `claude/speed-bump-jolt-rnd`.
 
+**Baseline — DJI in-camera (RockSteady).** DJI's own stabilized clip is the external reference. Two
+caveats make it a *separate* comparison rather than a row above: (1) DJI outputs **4:3** while our
+configs render **16:9** — comparing our 16:9 `dy` to DJI's 4:3 flatters us (the 16:9 crop discards
+the high-residual sensor periphery, §6), so the fair `dy` comparison re-renders our DCR at 4:3
+(`--keep-sensor`); (2) DJI bakes stabilization into the pixels and exports **no** smoothed camera
+path, so the telemetry `accel` metric **cannot** be computed for it (`dy` from the video is all that
+is measurable). Matched same-scene pairs, FOV-matched 4:3, `dy` RMS (px @640):
+
+| framing-matched (4:3) | run0001 `dy` | run0002 `dy` | bike0005 `dy` | `accel` |
+|---|---:|---:|---:|---:|
+| our **DCR** (4:3) | 0.491 | 0.962 | 0.391 | (see 16:9 table) |
+| **DJI in-camera** (4:3) | 1.940 | 3.842 | 0.311 | n/a (no exported path) |
+| ratio (DJI / ours) | 3.9× | 4.0× | 0.79× | — |
+
+→ **vs DJI, activity-dependent:** our DCR is **~4× steadier on running** (violent bob), DJI **~1.3×
+steadier on smooth biking** — and that bike gap is entirely frame-**periphery** residual (distortion
+/ rolling-shutter at the 4:3 edges), not the smoothing; in the center band we tie (§6). Note our 4:3
+`dy` (0.49/0.96/0.39) is higher than the 16:9 `dy` in the table above (0.47/0.90/0.32) precisely
+because 4:3 includes that periphery. Detail: §6, `figures/dji_headtohead_summary.png`.
+
 ## 4. Black borders & zoom
 
 - **Black borders come only from the `max_zoom` (130 %) clamp.** The adaptive-zoom envelope tracks
