@@ -317,33 +317,41 @@ So adaptive zoom buys either ~0 % black border at equal crop, or 20–48 % less 
 (zero) black border. Static gives up that trade — using it would make black borders **worse** at
 any comparable FOV budget.
 
-**8c′. Dynamic-vs-static, broken down by smoothing config.** The static penalty is not uniform —
-it scales with how *spiky* each config's per-frame required FOV is. From the `raw_fov` series
-(default / DCR / per-axis, three clips), black-border frames under DYNAMIC vs STATIC (equal mean
-crop), and the extra constant crop a STATIC zoom needs for zero black border:
+**8c′. Dynamic-vs-static, broken down by smoothing config — all five.** The static penalty is not
+uniform: it depends on the *shape* of each config's per-frame required-FOV distribution. From the
+`raw_fov` series of all five smoothing configs (default / DCR / per-axis on this branch; **gaussian**
+from `claude/gaussian-smoothing` at σ0.5; **L1** from `claude/speed-bump-jolt-rnd`,
+`--l1-match-default`, with the `raw_fov` export ported over), black-border frames under DYNAMIC vs
+STATIC (equal mean crop), and the extra constant crop a STATIC zoom needs for zero black border:
 
-| clip | config | dynamic bb % | static bb % | static-for-0BB extra crop |
-|---|---|---:|---:|---:|
-| run 0001 | default | 0.0 | 2.5 | +27 % |
-| run 0001 | DCR | 0.3 | 2.5 | +46 % |
-| run 0001 | per-axis | 0.3 | 4.5 | +47 % |
-| run 0002 | default | 0.0 | 2.2 | +20 % |
-| run 0002 | DCR | 0.3 | 2.0 | +39 % |
-| run 0002 | per-axis | 0.8 | 5.4 | +40 % |
-| bike 0005 | default | 0.0 | 4.5 | +19 % |
-| bike 0005 | DCR | 0.0 | 4.5 | +23 % |
-| bike 0005 | per-axis | 0.2 | 5.5 | +41 % |
+| config | dynamic bb % | static bb % (equal crop) | static-for-0BB extra crop |
+|---|---:|---:|---:|
+| default | 0.0 | 2.2 – 4.5 | +19 … 27 % |
+| DCR | 0.0 – 0.3 | 2.0 – 4.5 | +23 … 46 % |
+| per-axis | 0.2 – 0.8 | 4.5 – 5.5 | +40 … 47 % |
+| **gaussian** | 0.0 – 0.4 | 2.7 – 3.8 | **+29 … 73 %** |
+| **L1** | **0.0** | **6.9 – 8.3** | **+10 … 13 %** |
 
-- **Dynamic zoom wins for every config** — ~0–0.8 % black-border frames vs static's 2.0–5.5 % at
-  equal crop (roughly a 10× reduction). Figure: `dynamic_vs_static_zoom_blackborder.png`.
-- **The gap is *largest* for the aggressive configs.** default's required FOV is the flattest, so
-  static costs "only" +19–27 % crop / 2–4.5 % black border. DCR and especially **per-axis** have
-  spikier required FOV (they zoom harder on peaks), so under static they black-border most
-  (per-axis 4.5–5.5 %) and need the most constant crop (+40–47 %) to avoid it.
-- **Takeaway:** dynamic zoom matters *more* the more aggressive the smoothing. Precisely the configs
-  that remove the most shake (DCR, per-axis) are the ones that would suffer most under a static
-  crop — so adaptive zoom is not optional for them. Under dynamic zoom the residual black border is
-  tiny for all (§8b: mostly clamp peaks, negligible in renders).
+(Per-clip numbers in `figures/dynamic_vs_static_zoom_blackborder.png`.)
+
+- **Dynamic zoom wins for every config** — ~0–0.8 % black-border frames vs static's 2.0–8.3 % at
+  equal crop. The temporal envelope absorbs whatever crop-demand shape the smoother produces.
+- **Static exposes each config's required-FOV *shape*, and it differs sharply:**
+  - **default** — flattest demand → cheapest all round (static +19–27 %, 2–4.5 % BB).
+  - **DCR / per-axis** — spikier peaks (they zoom harder on high-motion frames) → static needs the
+    most constant crop (+40–47 %) to avoid borders.
+  - **gaussian** — non-adaptive, so it over-smooths sharp intentional pans into a huge *peak* required
+    FOV → **priciest static-for-zero-BB (+73 % on run 0001)**; its bob-band demand is otherwise
+    modest (static-equal-crop only 2.7–3.8 %).
+  - **L1** — its hard crop box `|path−raw|≤B` *caps* the peak, so it **never breaches under dynamic
+    (0.0 %)** and needs the **least** crop for static-zero-BB (+10–13 %). But L1 rides that box
+    constantly (it minimises jerk by staying at the edge), so its required FOV is *consistently high*
+    → at equal mean crop a static zoom under-covers the **most** frames (**7–8 % BB**, worst of all).
+- **Takeaway:** dynamic zoom makes the smoother's crop-demand shape *irrelevant* to black borders
+  (~0 % for all five); static zoom makes it decisive, and the exposure is opposite for a capped
+  filter (L1: cheap zero-BB, bad equal-crop) vs a peaky one (gaussian: pricey zero-BB). So adaptive
+  zoom is not optional for any of these — least of all the aggressive ones. Under dynamic zoom the
+  residual black border is tiny for all (§8b: mostly clamp peaks, negligible in renders).
 
 ## 8d. Per-axis smoothing on top of `la1` — a real extra vertical win
 

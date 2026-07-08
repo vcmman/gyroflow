@@ -24,7 +24,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `bike0005_dcr_vs_dji.png` | `gyro_analysis.video_metrics` | bike 0005: original vs DCR vs DJI (16:9) |
 | `angular_velocity_raw_vs_smoothed.png` | `tools/angular_velocity_compare.py` | telemetry-domain: raw gyro vs smoothed (default/DCR) angular velocity, run 0001/0002 + bike |
 | `angular_derivatives_compare.png` | `tools/angular_derivatives_compare.py` | angular velocity/accel/jerk RMS by config — same ranking at every order (accel discriminates most, jerk redundant); §8f |
-| `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov` per config | dynamic vs static zoom black border by config — dynamic ≈0 for all, gap largest for aggressive configs; §8c′ |
+| `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov`, 5 configs (incl. gaussian + L1) | dynamic vs static zoom black border by config — dynamic ≈0 for all; static exposes each config's crop-demand shape (L1 capped, gaussian peaky); §8c′ |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).
