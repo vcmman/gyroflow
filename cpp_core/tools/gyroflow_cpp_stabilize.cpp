@@ -281,6 +281,9 @@ int main(int argc, char** argv) {
                         ? ZoomMethod::GaussianFilter
                         : ZoomMethod::EnvelopeFollower;
         az.look_ahead_s = zoom_look_ahead;
+        if (az.method == ZoomMethod::GaussianFilter && zoom_look_ahead >= 0.0)
+            std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
+                         "ignored with --zoom-method gaussian\n";
         std::cout << "Computing adaptive zoom (window " << az.window_s << " s, max zoom "
                   << max_zoom << "%, method "
                   << (az.method == ZoomMethod::GaussianFilter ? "gaussian" : "envelope")

@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <deque>
 #include <vector>
 
 namespace dz {
@@ -238,10 +239,14 @@ inline std::vector<double> rollingMin(const std::vector<double>& a, size_t win) 
     std::vector<double> out;
     if (win == 0 || a.size() < win) return out;
     out.reserve(a.size() - win + 1);
-    for (size_t i = 0; i + win <= a.size(); ++i) {
-        double m = a[i];
-        for (size_t j = 1; j < win; ++j) m = std::fmin(m, a[i + j]);
-        out.push_back(m);
+    std::deque<size_t> mono;  // monotonic deque: front = window minimum; O(n) total
+    for (size_t i = 0; i < a.size(); ++i) {
+        while (!mono.empty() && a[mono.back()] >= a[i]) mono.pop_back();
+        mono.push_back(i);
+        if (i + 1 >= win) {
+            if (mono.front() + win <= i) mono.pop_front();
+            out.push_back(a[mono.front()]);
+        }
     }
     return out;
 }
@@ -282,22 +287,36 @@ inline std::vector<double> gaussianFilterSmooth(const std::vector<double>& fov, 
 //  tighten / slow open); the min(state, required) guard keeps applied <= required (no border).
 //  W == 0 is fully causal (snaps in on shakes); W = 1 s ramps the crop in beforehand.
 // ============================================================================================= //
+// NOTE: hand-maintained port of the authoritative implementation in
+// ../src/zooming/adaptive_zoom.cpp (envelopeLookAhead) — keep the two in sync.
 inline std::vector<double> envelopeLookAhead(const std::vector<double>& req, double fps,
                                              double window_s, double look_ahead_s) {
     const size_t n = req.size();
     if (n == 0) return {};
-    const long W = look_ahead_s > 0.0 ? std::lround(look_ahead_s * fps) : 0;
+    const size_t W = look_ahead_s > 0.0 ? static_cast<size_t>(std::lround(look_ahead_s * fps)) : 0;
     const double a_fast = 1.0 - std::exp(-(1.0 / fps) / 0.2);        // tighten (reactive)
     const double a_slow = 1.0 - std::exp(-(1.0 / fps) / window_s);   // open (smooth)
+
+    // Sliding-window minimum over [i, i+W] with a monotonic deque (front = window min): each
+    // index enters/leaves once -> O(n) total. On a board, replace std::deque with a fixed-size
+    // ring buffer of W+1 indices.
+    std::deque<size_t> mono;
+    auto push = [&](size_t j) {
+        while (!mono.empty() && req[mono.back()] >= req[j]) mono.pop_back();
+        mono.push_back(j);
+    };
+    for (size_t j = 0; j <= std::min(W, n - 1); ++j) push(j);
+
     std::vector<double> out(n);
     double state = req[0];
     for (size_t i = 0; i < n; ++i) {
-        const size_t hi = std::min<size_t>(n - 1, i + static_cast<size_t>(W));
-        double target = req[i];
-        for (size_t j = i + 1; j <= hi; ++j) target = std::fmin(target, req[j]);  // look-ahead min
+        if (mono.front() < i) mono.pop_front();      // expire indices left of the window
+        const double target = req[mono.front()];     // min over [i, i+W]
         const double a = (target < state) ? a_fast : a_slow;
         state += a * (target - state);
         out[i] = std::fmin(state, req[i]);   // min-guard: never crop less than the frame needs
+        const size_t incoming = i + 1 + W;
+        if (incoming < n) push(incoming);
     }
     return out;
 }

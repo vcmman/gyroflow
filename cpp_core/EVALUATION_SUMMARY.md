@@ -38,6 +38,17 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    - **Biking (smooth): DJI is ~1.3× steadier** (0.31 vs 0.39), and that gap is entirely at the
      frame **periphery** (distortion / rolling-shutter residual), not the smoothing. → §6.
 
+5. **Gaussian / L1 kernels: opt-in, not DCR replacements.** They minimise angular *acceleration*
+   (smoothest path — Gaussian σ0.5 beats DCR everywhere on accel) but never match DCR on `dy`
+   (amplitude). Two objectives, two winners. → §3; kernels live on `claude/gaussian-smoothing` /
+   `claude/speed-bump-jolt-rnd`.
+
+6. **Dynamic zoom: borders solved; look-ahead fixes pops.** Black borders come only from the
+   `max_zoom` clamp; dynamic zoom beats static for *every* smoothing config (~0 % vs 2–8 %
+   black-border frames at equal crop). 1 s FOV look-ahead (`--zoom-look-ahead 1`) does **not**
+   change borders (already 0 by min-tracking) — it removes the causal zoom *pops* (~5–10× smaller
+   jumps, offline-level crop). → §4, `SMOOTHING_RND.md` §8c′/§8h.
+
 ![DCR vs DJI head-to-head](figures/dji_headtohead_summary.png)
 
 ---
@@ -109,6 +120,17 @@ because 4:3 includes that periphery. Detail: §6, `figures/dji_headtohead_summar
 - **Adaptive zoom beats static, either way you set it:** at equal average crop a static zoom
   black-borders ~2 % of frames; at equal (zero) black border it costs +20…48 % crop everywhere.
   → §8c.
+- **Per config (all five smoothers):** dynamic zoom absorbs every config's crop-demand shape (~0 %
+  black border for all); static exposes it, oppositely for different filter shapes — L1's hard crop
+  box is *capped* (cheapest static-zero-BB +10–13 %, but worst at equal crop, 7–8 % BB) while the
+  non-adaptive Gaussian is *peaky* (priciest static-zero-BB, +73 % on run 0001). Dynamic zoom
+  matters most for exactly the aggressive configs that remove the most shake. → §8c′,
+  `figures/dynamic_vs_static_zoom_blackborder.png`.
+- **FOV look-ahead (`--zoom-look-ahead`, real-time builds):** 1 s of future does **not** reduce
+  black borders (min-tracking already gives 0 in every mode) — it removes the causal zoom *pops*:
+  max per-frame zoom jump 0.07–0.26 (causal) → 0.02–0.03 (1 s), mean crop back to offline levels.
+  Render-confirmed: `dy` with 1 s look-ahead matches offline (0.683 vs 0.675; 1.372 vs 1.369),
+  causal is slightly worse (0.871, 1.510). → §8h, `figures/zoom_lookahead_causal_vs_1s.png`.
 
 ## 5. Tier-1 decision — the full matrix
 
@@ -158,17 +180,22 @@ could not fully measure (DJI's output FOV is not in telemetry).
 **Confirmed and landed:** DCR (`--enhanced`) as the Tier-1 stabilization enhancement — parity-safe,
 −31…35 % vertical shake, ~4× better than DJI on running, on par (center) on biking.
 
-**Next (from the analysis):**
-1. **Gaussian base kernel** — swap the EMA smoother for a linear-phase Gaussian kernel and evaluate
-   it against EMA/DCR on **both** axes measured here: optical flow (`dy`) and angular jerk (§8f). A
-   linear-phase kernel should lower jerk without the DCR gate; check it holds `dy` and crop on real
-   renders. Tools: `tools/vertical_flow_compare.py` + `tools/angular_jerk_compare.py`.
-2. **Frame-periphery residual** — the only place DJI leads. Investigate per-row rolling-shutter and
-   fisheye-distortion accuracy at the sensor edges (band analysis localizes it to the bottom/edge).
-3. **Translation-domain stabilization** (`SMOOTHING_RND.md` §3) — the visible "running float" is
-   translational parallax that no rotational smoother can remove; the largest remaining quality
-   headroom, a separate larger effort.
-4. **Native 10-bit decode + DJI parse** (`TODO.md`) — port-completeness (pixel fidelity), removes
-   the bridge.
+**Next (priority order — mirrors `TODO.md` §0):**
+1. **Velocity-adaptive Gaussian** (~1 day, best value): the fixed-σ Gaussian is done and evaluated
+   (§3 — lowest accel, but loses to DCR on `dy`); drive its per-frame σ from the velocity ratio
+   (± DCR gate) `default_algo` already computes, to chase DCR's amplitude *and* the Gaussian's
+   smoothness at once. **Acceptance gate:** `dy` ≤ DCR AND accel < DCR on run+bike, black border not
+   increased (`vertical_flow_compare.py` + `angular_derivatives_compare.py` + `zoom_vs_maxzoom.py`).
+   Passing → new `--enhanced`.
+2. **Frame-periphery residual** — the only place DJI leads (§6). Investigate per-row rolling-shutter
+   and fisheye-distortion accuracy at the sensor edges (band analysis localizes it to bottom/edge).
+3. **Branch consolidation** — merge `claude/gaussian-smoothing` (verified low-risk); **rebase**
+   `claude/speed-bump-jolt-rnd` (real CLI conflicts + missing infra; unify its API to
+   `(quats, duration_ms, params)` on the way).
+4. **Translation-domain stabilization** (`SMOOTHING_RND.md` §3) — the visible "running float" is
+   translational parallax no rotational smoother can remove; the largest remaining headroom,
+   a separate larger effort (start with a design doc).
+5. **Native 10-bit decode + DJI parse** (`TODO.md` §1/§3) — port-completeness (pixel fidelity),
+   removes the bridge.
 
 Reproduce everything: [`figures/README.md`](figures/README.md).

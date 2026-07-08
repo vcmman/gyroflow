@@ -7,6 +7,12 @@ telemetry and writes a stabilized MP4**, matching Rust Gyroflow's output.
 It is written against the real Rust pipeline (`src/core/`), with concrete file/function
 references so the math can be ported faithfully and validated against golden data.
 
+> **Status (2026-07-08):** the plan below is complete through Phase 2 and superseded for
+> day-to-day tracking by `TODO.md` (status + roadmap) and `EVALUATION_SUMMARY.md` (results).
+> Work landed after this plan was written: DCR gate / `--enhanced` preset, per-axis smoothing,
+> finite look-ahead (`--look-ahead`, `--zoom-look-ahead`), `raw_fov` export, the evaluation
+> campaign (SMOOTHING_RND §8), and `examples/dynamic_zoom_reference.cpp`.
+
 ---
 
 ## 1. Review of the current `cpp_core/` scaffold

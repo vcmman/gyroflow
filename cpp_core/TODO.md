@@ -1,7 +1,7 @@
 # cpp_core — status & next steps (resume here)
 
 Headless C++ port of Gyroflow's stabilization core. Self-contained CMake project; math
-validated against Rust Gyroflow's golden metadata. Last updated 2026-06-22.
+validated against Rust Gyroflow's golden metadata. Last updated 2026-07-08.
 
 ## Current status (one line)
 
@@ -34,8 +34,20 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   sensor) / `--output-size WxH`.
 - **Telemetry bridge** (`telemetry_io.*`, `tools/export_bridge_json.py`): consumes fused
   attitude quaternions + lens profile + readout from the Rust Gyroflow CLI.
-- **Validation tooling**: `gyroflow_cpp_validate` (+ `--zoom-method`), `compare_gyroflow_
-  metadata.py` (math vs golden), `stabilization_quality.py` (ITF + residual motion).
+- **DCR gate / `--enhanced` preset** (`--dcr`, SMOOTHING_RND §1/§8e): direction-consistency
+  gating on the velocity dampening — the validated Tier-1 enhancement (−31…35 % rendered
+  vertical shake, black border unchanged). `--enhanced` ≡ `--dcr`; golden default untouched.
+- **Finite look-ahead** (`--look-ahead S`, §7): in-camera-realizable smoothing — backward pass
+  limited to S seconds of buffered future (0 = offline/golden).
+- **Zoom FOV look-ahead** (`--zoom-look-ahead S`, §8h): real-time dynamic-zoom envelope with S
+  seconds of future; fixes causal zoom pops (~5–10× smaller jumps), borders already 0 (<0 =
+  offline/golden).
+- **Portable reference** (`examples/dynamic_zoom_reference.cpp`): self-contained, dependency-free
+  dynamic-zoom algorithm for board-side porting (see `examples/README.md`).
+- **Validation tooling**: `gyroflow_cpp_validate` (+ `--zoom-method`, `raw_fov` column = required
+  FOV pre-smoothing/clamp), `compare_gyroflow_metadata.py` (math vs golden),
+  `stabilization_quality.py` (ITF + residual motion), image/telemetry eval scripts
+  (`tools/README.md` §3).
 - **Tests**: ctest **7/7** (core, fisheye, telemetry_io, transform, adaptive_zoom [both
   methods, constant + varying signal], imu_orientation, smoothing [scalar + per-axis]).
 
@@ -47,7 +59,26 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
 
 ## TODO (priority order)
 
-### 1. Native libav 10-bit decode (input)  ← highest-value
+### 0. Algorithm quality — from the evaluation campaign (`EVALUATION_SUMMARY.md`)
+- **0a. Velocity-adaptive Gaussian** (best value, ~1 day): drive the Gaussian kernel's per-frame σ
+  from the velocity ratio (± DCR gate) that `default_algo` already computes — chase DCR's `dy`
+  (amplitude) *and* the Gaussian's low acceleration (smoothness) at once. **Acceptance gate**
+  (tools ready): `dy` ≤ DCR AND accel < DCR on run+bike, black border not increased
+  (`vertical_flow_compare.py` + `angular_derivatives_compare.py` + `zoom_vs_maxzoom.py`).
+  Passing → becomes the new `--enhanced`. Base kernel: `claude/gaussian-smoothing`.
+- **0b. Frame-periphery residual**: the only place DJI leads (smooth biking, 4:3 edges,
+  EVALUATION_SUMMARY §3/§6). Investigate per-row rolling-shutter interpolation and fisheye-model
+  accuracy at high image radii; band analysis already localizes it.
+- **0c. Branch consolidation**: merge `claude/gaussian-smoothing` (verified low-risk — only 2
+  Markdown conflicts, CLI/CMake auto-merge); **rebase** `claude/speed-bump-jolt-rnd` (L1) — do NOT
+  naive-merge (real conflicts in both CLI tools; it predates DCR/`--enhanced`/`raw_fov`). On
+  rebase, unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
+  default_algo's euler↔quat helpers, replace fixed 2000 ADMM iterations with a convergence test.
+- **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
+  float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
+  needs optical-flow translation smoothing + crop budget. Start with a design doc.
+
+### 1. Native libav 10-bit decode (input)  ← highest-value platform gap
 Input is still `cv::VideoCapture` (8-bit BGR), truncating 10-bit/HDR DJI footage. Output
 already pipes to ffmpeg. Replace decode with libav / `ffmpeg -f rawvideo` and carry bit depth
 into the kernel (the undistort kernel would need a 16-bit sample path). Ref
@@ -80,8 +111,8 @@ where DJI's native quaternion axis convention is normalized into the orientation
 Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
 distinguish an intentional fast pan from an unintentional jolt/bob and passes it through;
 adaptive zoom then "pumps" or hits `max_zoom` (black borders). A prototype + the measurement
-tooling and findings are recorded in **`cpp_core/JOLT_RND.md`** (the gated-smoothing code was
-NOT merged).
+tooling and findings are recorded in **`cpp_core/SMOOTHING_RND.md`** (§5 covers the L1
+jerk-limiting comparison; the L1 code lives on `claude/speed-bump-jolt-rnd`, NOT merged).
 
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
@@ -117,7 +148,7 @@ ceiling), and a Gaussian base kernel beats EMA+DCR on jerk at equal crop. Candid
 
 ## Quick resume commands
 ```sh
-cmake --build cpp_core/build -j && (cd cpp_core/build && ctest --output-on-failure)   # 6/6
+cmake --build cpp_core/build -j && (cd cpp_core/build && ctest --output-on-failure)   # 7/7
 
 # stabilize (default: 16:9 crop, EnvelopeFollower zoom; --keep-sensor for 4:3,
 #            --zoom-method gaussian for the other method)

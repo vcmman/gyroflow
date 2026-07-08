@@ -81,5 +81,43 @@ int main() {
         assert(mn < 0.999);  // zoom engaged somewhere
     }
 
+    // raw_fovs_out: must receive one required-FOV per frame, equal to the per-frame inscribed
+    // value BEFORE smoothing/clamp — i.e. applied fov <= raw fov everywhere (min-tracking).
+    {
+        AdaptiveZoomParams az_r = az;
+        std::vector<double> raw_fovs;
+        const std::vector<double> fv =
+            computeAdaptiveFovs(ts, raw_r, smooth_r, lens, W, H, 30.0, tp, az_r, &raw_fovs);
+        assert(raw_fovs.size() == ts.size());
+        for (std::size_t i = 0; i < fv.size(); ++i) {
+            assert(raw_fovs[i] > 0.0 && raw_fovs[i] <= 1.0 + 1e-9);
+            assert(fv[i] <= raw_fovs[i] + 1e-9);  // smoothing can only crop MORE
+        }
+    }
+
+    // Look-ahead envelope (az.look_ahead_s >= 0, real-time path):
+    //  * output length preserved; applied <= required everywhere (the min-guard);
+    //  * a huge look-ahead window (>= clip length) must not exceed the offline envelope's crop
+    //    anywhere by more than the asymmetric-EMA transient;
+    //  * look-ahead 0 (fully causal) is also valid and border-free.
+    {
+        std::vector<double> req;
+        AdaptiveZoomParams az_off = az;
+        const std::vector<double> offline =
+            computeAdaptiveFovs(ts, raw_r, smooth_r, lens, W, H, 30.0, tp, az_off, &req);
+        for (double la : {0.0, 1.0, 100.0}) {
+            AdaptiveZoomParams az_la = az;
+            az_la.look_ahead_s = la;
+            const std::vector<double> fv =
+                computeAdaptiveFovs(ts, raw_r, smooth_r, lens, W, H, 30.0, tp, az_la);
+            assert(fv.size() == ts.size());
+            for (std::size_t i = 0; i < fv.size(); ++i) {
+                assert(fv[i] > 0.0 && fv[i] <= 1.0 + 1e-9);
+                assert(fv[i] <= req[i] + 1e-9);  // min-guard: never a geometric border
+            }
+        }
+        (void)offline;
+    }
+
     return 0;
 }

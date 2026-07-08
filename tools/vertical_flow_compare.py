@@ -19,6 +19,9 @@ def main():
     ap.add_argument("--dir", required=True, help="cpp_out directory")
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--max-frames", type=int, default=None)
+    ap.add_argument("--ref", nargs=2, action="append", metavar=("CLIP", "VIDEO"), default=None,
+                    help="optional per-clip reference video (e.g. DJI in-camera), repeatable: "
+                         "--ref 0001 /path/DJI_ref.MP4. Omit to plot configs only.")
     ap.add_argument("-o", "--out", default="vertical_flow_compare.png")
     args = ap.parse_args()
 
@@ -32,12 +35,10 @@ def main():
         ("_dcr_la1", "DCR + 1s LA",          "#1f77b4"),
     ]
 
-    # Per-clip extra reference clips (absolute paths), e.g. DJI in-camera stabilized.
-    REF_DIR = "/media/yc/Seagate Backup Plus Drive/dji6/dji6_R/run"
-    refs = {
-        "0001": (os.path.join(REF_DIR, "DJI_20260625014752_0002_D.MP4"), "DJI in-camera", "#000000"),
-        "0002": (os.path.join(REF_DIR, "DJI_20260625014927_0004_D.MP4"), "DJI in-camera", "#000000"),
-    }
+    # Per-clip extra reference clips from --ref (e.g. DJI in-camera stabilized takes).
+    refs = {}
+    for clip, path in (args.ref or []):
+        refs[clip] = (path, "DJI in-camera", "#000000")
 
     series = {}
     for clip in clips:

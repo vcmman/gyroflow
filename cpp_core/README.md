@@ -40,7 +40,7 @@ gyroflow --version    # sanity check
 git clone <this-repo> && cd <repo>           # or use your existing checkout
 cmake -S cpp_core -B cpp_core/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp_core/build -j
-(cd cpp_core/build && ctest --output-on-failure)    # optional: 5/5 should pass
+(cd cpp_core/build && ctest --output-on-failure)    # optional: 7/7 should pass
 ```
 
 This produces `cpp_core/build/gyroflow_cpp_stabilize` (needs OpenCV; the build prints
@@ -122,6 +122,12 @@ Stabilization options:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
+| `--enhanced` | off | **Recommended preset** = DCR on (−31…35 % vertical shake, black border unchanged; `EVALUATION_SUMMARY.md`). |
+| `--dcr [--dcr-window 0.5] [--dcr-power 1.0]` | off | Direction-consistency gate: keep full smoothing on reciprocating shake, follow intentional pans (`SMOOTHING_RND.md` §1). |
+| `--per-axis --smoothness-pitch/-yaw/-roll <0..1>` | off | Per-euler-axis smoothing (evaluated §8d/§8e — not in the preset). |
+| `--look-ahead <s>` | 0 (offline) | In-camera finite look-ahead for the smoothing backward pass (§7). |
+| `--zoom-method envelope\|gaussian` | envelope | Dynamic-zoom temporal smoother (both golden-validated). |
+| `--zoom-look-ahead <s>` | −1 (offline) | Real-time dynamic-zoom envelope with this much future; fixes causal zoom pops (§8h). |
 | `--max-zoom <pct>` | 130 | Dynamic-zoom ceiling (percent). |
 | `--no-adaptive-zoom` | off | Disable dynamic crop (renders with `--fov`). |
 | `--fov <f>` | 1.0 | Static zoom (`<1` zooms in); disables adaptive zoom. |

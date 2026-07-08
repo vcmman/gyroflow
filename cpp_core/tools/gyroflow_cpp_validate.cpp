@@ -72,8 +72,11 @@ int main(int argc, char** argv) {
         else { std::cerr << "Unknown option: " << a << "\n"; return 2; }
     }
     if (bridge.empty()) {
-        std::cerr << "Usage: gyroflow_cpp_validate <bridge.json> [--frames N] [--max-zoom 130]"
-                  << " [--keep-sensor] [--output-size WxH]\n";
+        std::cerr << "Usage: gyroflow_cpp_validate <bridge.json> [--frames N] [--max-zoom 130]\n"
+                  << "  Smoothing: [--enhanced] [--dcr [--dcr-window 0.5] [--dcr-power 1.0]]\n"
+                  << "             [--per-axis --smoothness-pitch/-yaw/-roll 0..1] [--look-ahead 0]\n"
+                  << "  Zoom:      [--zoom-method envelope|gaussian] [--zoom-look-ahead -1]\n"
+                  << "  Framing:   [--keep-sensor] [--output-size WxH]\n";
         return 2;
     }
 
@@ -139,6 +142,9 @@ int main(int argc, char** argv) {
                     ? ZoomMethod::GaussianFilter
                     : ZoomMethod::EnvelopeFollower;
     az.look_ahead_s = zoom_look_ahead;
+    if (az.method == ZoomMethod::GaussianFilter && zoom_look_ahead >= 0.0)
+        std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
+                     "ignored with --zoom-method gaussian\n";
     std::vector<double> raw_fovs;
     const std::vector<double> fovs =
         computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az,

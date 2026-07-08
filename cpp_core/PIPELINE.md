@@ -220,4 +220,6 @@ into Gyroflow to produce the bridge.
 
 IMU integration (DJI gives fused attitude), horizon lock, IBIS/OIS, digital lens / mesh
 correction, light refraction, focal-plane distortion, `lens_correction_amount < 1`,
-per-axis smoothing, keyframes, GPU. See `DEVELOPMENT_PLAN.md` / `TODO.md` for the roadmap.
+keyframes, GPU. (Per-axis smoothing IS implemented — `--per-axis`, off by default; the
+default result video uses the scalar path.) See `DEVELOPMENT_PLAN.md` / `TODO.md` for the
+roadmap.

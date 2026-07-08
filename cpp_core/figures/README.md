@@ -113,8 +113,10 @@ done
 ```sh
 CPP_OUT="$RUN/cpp_out"
 
-# Vertical shake — all configs + DJI in-camera reference
+# Vertical shake — all configs + optional DJI in-camera reference per clip (--ref)
 MPLBACKEND=Agg python3 tools/vertical_flow_compare.py --dir "$CPP_OUT" --width 640 \
+  --ref 0001 "$DJI_REF_DIR/DJI_20260625014752_0002_D.MP4" \
+  --ref 0002 "$DJI_REF_DIR/DJI_20260625014927_0004_D.MP4" \
   -o cpp_core/figures/vertical_flow_all_configs_vs_dji.png
 
 # Black-border statistics (stride-sampled for speed)
@@ -137,9 +139,9 @@ mean/p99/max/%frames; max required zoom + clamp-breach frame counts).
 
 ### Notes
 
-- The DJI reference overlay is a **machine-specific hardcode** at the top of
-  `main()` in `tools/vertical_flow_compare.py` (`REF_DIR` + the two `refs` paths). Edit it to
-  point at your own DJI in-camera clips, or delete the `refs` dict to drop the overlay.
+- The DJI reference overlay is supplied per clip with `--ref CLIP VIDEO` (repeatable); omit the
+  flag to plot the configs only. On this machine the references live under
+  `/media/yc/Seagate Backup Plus Drive/dji6/dji6_R/run/`.
 - `dy` is measured in pixels at the analysis width (640 px), square pixels, so values are
   comparable across the 16:9 cpp renders and the 4:3 DJI reference.
 - Black borders are geometrically forced **only** where required zoom exceeds `max_zoom`

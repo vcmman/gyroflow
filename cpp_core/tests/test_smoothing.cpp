@@ -165,6 +165,24 @@ int main() {
         assert(maxDiff(sOff, sOn) < 0.01);
     }
 
+    // --- finite look-ahead (look_ahead_s > 0): W >= n must reproduce the offline sweep
+    //     bit-for-bit; a short window must still smooth (runs, unit, removes jitter) ---
+    {
+        DefaultAlgoParams off;                                     // offline (look_ahead 0)
+        const auto sOff = smoothDefault(raw, dur, off);
+        DefaultAlgoParams huge = off;
+        huge.look_ahead_s = 1000.0;                                // W >= n => same as offline
+        const auto sHuge = smoothDefault(raw, dur, huge);
+        assert(maxDiff(sOff, sHuge) < 1e-12);
+
+        DefaultAlgoParams la = off;
+        la.look_ahead_s = 0.5;                                     // finite in-camera window
+        const auto sLa = smoothDefault(raw, dur, la);
+        assert(sLa.size() == raw.size());
+        assert(allUnit(sLa));
+        assert(totalVariation(sLa) < rawTV);                       // still removes jitter
+    }
+
     std::printf("test_smoothing: OK\n");
     return 0;
 }

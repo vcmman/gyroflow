@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <deque>
 #include <optional>
 
 #include "gyroflow/distortion/opencv_fisheye.hpp"
@@ -137,14 +138,19 @@ std::size_t framesPerWindow(double window_s, double fps) {
 }
 
 // zoom_dynamic::min_rolling: rolling minimum over `window` (valid positions only).
+// Monotonic-deque implementation — O(n) instead of O(n*window), output identical.
 std::vector<double> minRolling(const std::vector<double>& a, std::size_t window) {
     std::vector<double> out;
     if (window == 0 || a.size() < window) return out;
     out.reserve(a.size() - window + 1);
-    for (std::size_t i = 0; i + window <= a.size(); ++i) {
-        double m = a[i];
-        for (std::size_t j = 1; j < window; ++j) m = std::min(m, a[i + j]);
-        out.push_back(m);
+    std::deque<std::size_t> mono;  // indices with strictly increasing values; front = window min
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        while (!mono.empty() && a[mono.back()] >= a[i]) mono.pop_back();
+        mono.push_back(i);
+        if (i + 1 >= window) {
+            if (mono.front() + window <= i) mono.pop_front();  // expire left of the window
+            out.push_back(a[mono.front()]);
+        }
     }
     return out;
 }
@@ -237,20 +243,30 @@ std::vector<double> envelopeLookAhead(const std::vector<double>& req, double fps
                                       double look_ahead_s) {
     const std::size_t n = req.size();
     if (n == 0) return {};
-    const long W = std::max<long>(0, std::lround(look_ahead_s * fps));
+    const std::size_t W = static_cast<std::size_t>(std::max<long>(0, std::lround(look_ahead_s * fps)));
     const double a_fast = 1.0 - std::exp(-(1.0 / fps) / 0.2);       // tighten (reactive)
     const double a_slow = 1.0 - std::exp(-(1.0 / fps) / window_s);  // open (smooth)
+
+    // Sliding-window minimum over [i, i+W] via a monotonic deque of indices whose values are
+    // strictly increasing front->back: front is always the window minimum. O(n) total (each
+    // index enters and leaves the deque once) instead of the naive O(n*W) rescan.
+    std::deque<std::size_t> mono;
+    auto push = [&](std::size_t j) {
+        while (!mono.empty() && req[mono.back()] >= req[j]) mono.pop_back();
+        mono.push_back(j);
+    };
+    for (std::size_t j = 0; j <= std::min(W, n - 1); ++j) push(j);
 
     std::vector<double> out(n);
     double state = req[0];
     for (std::size_t i = 0; i < n; ++i) {
-        // look-ahead minimum over the buffered future window [i, i+W]
-        const std::size_t hi = std::min<std::size_t>(n - 1, i + static_cast<std::size_t>(W));
-        double target = req[i];
-        for (std::size_t j = i + 1; j <= hi; ++j) target = std::min(target, req[j]);
+        if (mono.front() < i) mono.pop_front();       // expire indices left of the window
+        const double target = req[mono.front()];      // min over [i, i+W]
         const double a = (target < state) ? a_fast : a_slow;
         state += a * (target - state);
         out[i] = std::min(state, req[i]);  // min-guard: never crop less than the frame needs
+        const std::size_t incoming = i + 1 + W;       // next window's newly visible index
+        if (incoming < n) push(incoming);
     }
     return out;
 }

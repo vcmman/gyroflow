@@ -326,6 +326,9 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
         } else {
             // finite look-ahead: for each output i, seed the backward accumulator at the newest
             // buffered forward value fwd[i+W] and sweep back down to i.
+            // COST: O(n*W) slerps (the EMA recurrence is order-dependent, so a deque trick does
+            // not apply). At 1 kHz gyro with W=1s this is ~1e7 slerps per pass — fine offline;
+            // an in-camera port should restructure to an incremental fixed-lag update instead.
             for (std::size_t i = 0; i < n; ++i) {
                 const std::size_t j0 = std::min(i + static_cast<std::size_t>(W), n - 1);
                 Quaternion qb = fwd[j0];
