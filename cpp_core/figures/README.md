@@ -27,6 +27,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov`, 5 configs (incl. gaussian + L1) | dynamic vs static zoom black border by config — dynamic ≈0 for all; static exposes each config's crop-demand shape (L1 capped, gaussian peaky); §8c′ |
 | `zoom_lookahead_causal_vs_1s.png` | validate `--zoom-look-ahead` (offline/causal/1s) | FOV look-ahead: black border 0% for all modes; 1s look-ahead removes the causal zoom pops (ramps vs snaps); §8h |
 | `dy_spectrum_ours_vs_dji.png` | Welch PSD of cached dy | residual spectrum: DJI = one dominant cadence peak (reads "clean", is the un-removed bob); ours lower in every band, 5× lower roughness; §8i |
+| `clamp_harmonic_distortion.png` | PSD + zoom of cached dy | double-peak diagnosis: memoryless saturation pumps 2nd-harmonic (ours 0.27 vs DJI 0.04) — DJI is a compressor, not a clipper; §8j-5 |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,

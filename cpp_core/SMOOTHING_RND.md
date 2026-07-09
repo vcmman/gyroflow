@@ -637,6 +637,22 @@ clamp (899 → 557 °/s² telemetry; DCR = 60 for reference). This upgrades conc
 should use the **soft** clamp (`--enhanced --deviation-clamp-soft 8..10`). Output:
 `dji6_L/20260708/0004_D_cpp_softclamp5.mp4`; figure updated (`deviation_clamp_vs_dji.png`).
 
+**8j-5. Residual gap — harmonic distortion; the elegant fix is joint optimization.** Even the soft
+clamp leaves a visible artefact: where DJI's dy shows ONE smooth peak per cadence swing, ours shows
+TWO small peaks. Diagnosis: any memoryless per-sample saturation (hard wall or tanh) *flattens the
+tops* of the ~sinusoidal cadence deviation; the derivative (dy) of a flat-topped sine has a notch
+where the peak was — the peak splits in two. Spectrally this is harmonic distortion, and it is
+measured: 2nd-harmonic/fundamental power at f₀ = 1.38 Hz is **0.039 for DJI** (waveform-preserving
+— its gain must vary on an *envelope* timescale, a compressor not a clipper), **0.269 for the soft
+clamp**, 0.366 for the hard clamp. Figure: `clamp_harmonic_distortion.png`. Elegant fixes, in
+increasing order of principle: (a) AGC — replace per-sample tanh with a slowly-varying envelope
+gain `g = min(1, B/E(t))` (waveform-preserving by construction); (b) deviation-envelope-adaptive
+alpha (the budget folded into the filter — likely DJI's actual form); (c) **joint optimization**:
+the real defect is the *sequential* filter-then-limit structure — solving smooth+box as ONE
+problem, `min Σ|derivatives| s.t. |path−raw| ≤ B`, is exactly the **L1-optimal smoother**
+(`claude/speed-bump-jolt-rnd`) with a small box: its solution rides the box as smooth polynomial
+arcs, no clipping, no harmonics, bound exact. Also explains §8c′ (L1 has the flattest crop demand).
+
 ---
 
 ## Bottom line & next steps
