@@ -801,6 +801,56 @@ zoom envelope, window 4 s, `max_zoom 130 %` (identical for every config).
 3. **bounded-crop guarantee / cinematic**: L1 box12 (beats DCR outright when the box doesn't
    bind, §8j-9).
 
+## 8l. Mechanism taxonomy — how each smoother's nonlinearity shapes the waveform
+
+A unifying frame for everything measured in §8i–§8k. Decompose the shake residual into two
+timescales:
+
+```
+d(t) ≈ A(t) · sin(2πf₀t)
+        slow      fast
+      envelope   carrier (cadence, ~1.4 Hz, period ~0.7 s)
+```
+
+The **carrier** is each individual swing; the **envelope** A(t) is how violent the motion is,
+varying over seconds. Every stabilizer that limits amplitude applies some effective attenuation —
+the question that decides waveform cleanliness is **how fast that attenuation is allowed to
+change**:
+
+- **Envelope-level slowly-varying gain** ("AGC" / compressor): `out = g(t)·d(t)` with g changing
+  only across cycles (slower than the carrier). Within any one cycle g ≈ const, so a sinusoid
+  stays a sinusoid — amplitude control happens *between* cycles, **zero harmonic distortion**.
+  Audio analogy: a compressor's attack/release rides the envelope.
+- **Per-sample saturation** (clipper): reacts *within* the cycle — reshapes the waveform itself
+  (flattens the tops), pumping energy into harmonics. Audio analogy: a hard/soft clipper.
+
+Five mechanism classes, anchored by the measured 2nd-harmonic ratio (0004, f₀ = 1.38 Hz;
+DJI-clean ≈ 0.04):
+
+| class | mechanism | gain-variation speed | 2nd-harm (measured) | budget? |
+|---|---|---|---|---|
+| linear filter (fixed-α EMA, Gaussian kernel) | LTI convolution | none | zero by definition | no |
+| **envelope gain / AGC (= DJI's form)** | g(t) follows the envelope | **slower than the carrier** | **0.039** | soft, on the envelope |
+| velocity-adaptive EMA (our default / DCR) | α driven by smoothed velocity (τ = 0.1 s) | **sub-cycle** (0.1 s < 0.7 s period) but smooth | 0.020 (mild motion) – 0.132 (violent) | no |
+| per-sample saturation (hard / soft clamp) | project/compress each sample | sample rate | 0.269 – 0.366 | hard, exact |
+| **joint optimization (L1 + box)** | not a gain — globally re-solves the path | — (global) | **0.043 – 0.062** | hard, exact |
+
+Readings:
+- **DJI's 0.039 identifies its limiter as an AGC**: no time-constant tuning of a low-pass can
+  produce its frequency-flat, distortion-free budget collapse (§8j-1/2) — only an envelope-rate
+  gain (or an equivalent global method) can.
+- **Our velocity-adaptive EMA sits in between**: the *fixed-α* EMA core is linear (no distortion
+  question at all); the mild distortion (0.132 under violence) comes purely from α being modulated
+  at sub-cycle rate — the velocity smoothing τ (0.1 s) is *shorter* than the cadence period, so α
+  breathes within each swing. Driving α from an **envelope** of velocity/deviation instead (the
+  §8j-5b idea) would turn it into a true AGC — very likely DJI's actual implementation.
+- **L1 is a third category, not a gain at all**: its nonlinearity (soft-thresholding) manifests as
+  *sparse knot placement*, not waveform reshaping — within segments the output is an exact
+  polynomial, and at the box it rides tangential arcs. It reaches AGC-level cleanliness (0.043)
+  while *also* delivering what an AGC cannot: an exact deviation bound and global optimality.
+- The clamps are the cautionary tale: any per-sample limiter — however soft — is a clipper, and
+  the 6–9× harmonic penalty vs DJI is structural, not tunable away (§8j-4/5).
+
 ---
 
 ## Bottom line & next steps
