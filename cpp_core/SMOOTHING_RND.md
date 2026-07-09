@@ -765,6 +765,42 @@ DJI (even L1 box5 / soft clamp). (Harmonic-ratio caveat: for heavily-smoothed co
 DCR — the 2nd/fund ratio is meaningless because the fundamental itself is crushed; their absolute
 harmonic energy is the lowest of all.)
 
+## 8k. Plain EMA (no DCR) vs DJI — the stock defaults already win, with ZERO black borders
+
+Isolated comparison of the **unmodified Gyroflow default smoother** against DJI in-camera, across
+all four measured clips. Parameters — exactly `DefaultAlgoParams` defaults, the golden path:
+`smoothness 0.5`, `max_smoothness 1.0 s` (zero-velocity time constant), `alpha_0_1s 0.1 s`
+(max-velocity time constant), `second_pass on`; per-axis / DCR / clamps / look-ahead all off;
+zoom envelope, window 4 s, `max_zoom 130 %` (identical for every config).
+
+| clip | EMA `dy` | DJI `dy` | ratio | EMA rough | DJI rough | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| run 0001 | 0.675 | 1.926 | **2.9×** | 0.158 | 0.654 | **4.1×** |
+| run 0002 | 1.369 | 3.843 | **2.8×** | 0.383 | 1.237 | **3.2×** |
+| 0004 (violent) | 4.039 | 5.951 | **1.5×** | 2.269 | 5.300 | **2.3×** |
+| bike (smooth) | 0.320 | 0.311 | tie | 0.145 | 0.144 | tie |
+
+- **Amplitude AND smoothness: 1.5–4× better than DJI on violent footage, tie on smooth** —
+  before any of our enhancements. (As-delivered framing caveat: ours 16:9 vs DJI 4:3; violent
+  multiples are immune to it, the smooth-footage tie may tilt slightly DJI at matched 4:3 — the
+  §6 periphery effect.)
+- **Zero geometric black border**: the plain EMA's required zoom never breaches the 130 % clamp on
+  any measured clip (peaks 1.16–1.27; even 0004 only 1.18) — unlike DCR, whose violent-clip spikes
+  (1.4–1.8, up to 3 % of frames, wedges up to ~28 % of half-frame on breach frames) are the black
+  borders visible in DCR exports.
+- Waveform: near-DJI-clean on run 0002 (2nd-harm 0.020 vs 0.017), mildly distorted on 0004
+  (0.132 vs 0.039 — the velocity-adaptive α is itself a weak per-sample nonlinearity, §8j-8).
+- Mechanism note: EMA and DJI are the same *family* ("follow more when motion is big") — EMA
+  modulates a time constant with no hard budget, so it keeps far more HF suppression than DJI's
+  budget-saturation collapse (0004 attenuation profile 1.1/4.2/34× vs DJI's flat 1.3/2.3/2.1×).
+
+**Practical config ladder** (updates the §8j-8 map with the border dimension):
+1. **conservative / zero-border**: plain EMA — already ≥ DJI everywhere;
+2. **max steadiness**: DCR + `--max-zoom 180` (kills the clamp wedges at zero cost on quiet
+   sections — the envelope only takes what each frame needs);
+3. **bounded-crop guarantee / cinematic**: L1 box12 (beats DCR outright when the box doesn't
+   bind, §8j-9).
+
 ---
 
 ## Bottom line & next steps
