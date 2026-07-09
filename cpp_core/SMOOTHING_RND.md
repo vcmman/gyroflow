@@ -851,6 +851,43 @@ Readings:
 - The clamps are the cautionary tale: any per-sample limiter — however soft — is a clipper, and
   the 6–9× harmonic penalty vs DJI is structural, not tunable away (§8j-4/5).
 
+## 8m. Unified matched-4:3 comparison — 4 clips × {default, DCR, L1 box12} vs DJI
+
+All configs re-rendered at `--keep-sensor` 4:3 (full sensor, same framing as DJI — the periphery
+included, no 16:9 flattery), all four clips. dy = image domain; accel/jerk = telemetry (DJI n/a).
+Figure: `unified_4x3_dy_accel_jerk.png`.
+
+| clip | default | DCR | L1 box12 | DJI | dy winner |
+|---|---:|---:|---:|---:|---|
+| run 0001 | 0.727 | 0.461 | **0.304** | 1.924 | L1 (6.3× vs DJI) |
+| run 0002 | 1.606 | 0.834 | **0.700** | 3.815 | L1 (5.5× vs DJI) |
+| 0003 (calm, 277 s) | 0.359 | 0.344 | **0.274** | 0.334 | **L1 — beats DJI on calm too** |
+| 0004 (most violent) | 4.609 | **1.720** | 4.901 | 5.951 | DCR (3.5× vs DJI) |
+
+telemetry accel / jerk (°/s², °/s³):
+
+| clip | default | DCR | L1 box12 |
+|---|---|---|---|
+| run 0001 | 49 / 625 | 33 / 582 | **19 / 121** |
+| run 0002 | 93 / 1216 | 43 / 785 | **30 / 180** |
+| 0003 | 25 / 198 | 23 / 204 | **18 / 75** |
+| 0004 | 215 / 2856 | **65 / 1200** | 180 / 1759 |
+
+**Headlines:**
+1. **L1 box12 wins 3 of 4 clips outright — including the calm clip at matched 4:3** (0.274 vs
+   DJI 0.334, −18 %), the exact scenario where default/DCR slightly *lose* to DJI (0.359/0.344 vs
+   0.334 — the §6 periphery deficit, replicated on 0003). The globally-optimized polynomial path
+   apparently also excites less periphery residual. This closes the last per-scenario gap vs DJI.
+2. **The box-vs-violence law (§8j-9) holds at 4:3**: on the most violent clip (0004, original
+   12.6 px) the box binds and DCR wins (1.720); L1 box12 degrades to ≈ default. Everywhere else
+   L1 dominates all three metrics simultaneously (dy AND accel AND jerk — jerk 3–5× below DCR).
+3. **vs DJI at fully matched framing: our best config beats DJI on every clip** (L1 on three,
+   DCR on the fourth) — no remaining scenario where DJI leads.
+
+This further sharpens 0c′: a self-tuning L1 (box from `max_zoom`, falling back toward DCR-like
+behaviour only when the required box would exceed the budget) would be the best-of-all-rows
+single default.
+
 ---
 
 ## Bottom line & next steps
