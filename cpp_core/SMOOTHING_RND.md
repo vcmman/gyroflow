@@ -727,6 +727,12 @@ a self-tuning "max quality within the crop budget" L1 mode). Output:
 So the final map: **DCR / EMA for maximum steadiness (unbounded crop demand), L1-with-box for the
 guaranteed-crop class (beats DJI), soft clamp as its cheap real-time approximation.**
 
+Merged evidence views (all eight configs — original / EMA / DCR / hard clamp / soft clamp /
+L1 box5 / L1 box12 / DJI): `all_bounded_experiments_dy.png` (trace zooms + sorted summary bars),
+`all_bounded_experiments_dy_full.png` (full 1973 frames), `all_bounded_experiments_dy_400_900.png`
+(calm→violent transition window). Full dy ladder on 0004: DCR 1.95 < EMA 4.04 < **L1 box12 5.20**
+< soft clamp 5.94 ≈ DJI 5.95 < hard clamp 6.95 < L1 box5 7.33 < original 12.60.
+
 ---
 
 ## Bottom line & next steps

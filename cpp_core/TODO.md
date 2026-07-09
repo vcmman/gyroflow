@@ -70,10 +70,14 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   EVALUATION_SUMMARY §3/§6). Investigate per-row rolling-shutter interpolation and fisheye-model
   accuracy at high image radii; band analysis already localizes it.
 - **0c. Branch consolidation**: merge `claude/gaussian-smoothing` (verified low-risk — only 2
-  Markdown conflicts, CLI/CMake auto-merge); **rebase** `claude/speed-bump-jolt-rnd` (L1) — do NOT
-  naive-merge (real conflicts in both CLI tools; it predates DCR/`--enhanced`/`raw_fov`). On
-  rebase, unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
+  Markdown conflicts, CLI/CMake auto-merge). ~~Rebase `claude/speed-bump-jolt-rnd`~~ — **done
+  (2026-07-09)**: this branch is now rebased onto the full cpp-impl stack (`--smoothing l1`
+  coexists with DCR/`--enhanced`/clamps/`raw_fov`; golden intact, ctest 7/7). Still open from the
+  rebase review: unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
   default_algo's euler↔quat helpers, replace fixed 2000 ADMM iterations with a convergence test.
+- **0c′. Self-tuning crop-budget L1** (§8j-7/8): derive the per-axis box B from `max_zoom`
+  automatically (box 12° ≈ the 130 % clamp boundary on 0004) → a parameter-free "max quality
+  within the crop budget" bounded mode that beats DJI (dy −12 %, roughness −30 %, clean waveform).
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.

@@ -29,6 +29,9 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `dy_spectrum_ours_vs_dji.png` | Welch PSD of cached dy | residual spectrum: DJI = one dominant cadence peak (reads "clean", is the un-removed bob); ours lower in every band, 5× lower roughness; §8i |
 | `clamp_harmonic_distortion.png` | PSD + zoom of cached dy | double-peak diagnosis + L1 fix: saturation pumps 2nd-harmonic (clamps 0.27–0.37 vs DJI 0.04); L1 joint optimization restores the clean waveform (0.043); §8j-5/§8j-6 |
 | `ema_vs_dji_vs_l1_dy.png` | cached dy (0004) | converged three-way: plain EMA steadiest (unbounded class); L1 box12 beats DJI in the bounded class; waveform-cleanliness axis; §8j-8 |
+| `all_bounded_experiments_dy.png` | cached dy (0004) | every clamp + L1 experiment in one view: bounded/unconstrained trace zooms + all 8 configs sorted by dy RMS with roughness + harmonic; §8j-8 |
+| `all_bounded_experiments_dy_full.png` | cached dy (0004) | same series over the full 1973 frames (envelope/distribution view) |
+| `all_bounded_experiments_dy_400_900.png` | cached dy (0004) | frames 400–900 window (calm→violent transition), per-window RMS |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,

@@ -191,9 +191,18 @@ default): a clamp-5° render matches DJI within ~15–20 % on every measure. The
 saturation "burrs" (raw HF passes through while riding the box); the **soft variant**
 (`--deviation-clamp-soft B`, smooth box center τ0.02 + tanh saturation, §8j-4) fixes them and
 lands **exactly on DJI's amplitude (dy 5.944 vs 5.951) with 39 % less HF jitter and 37 % less
-roughness than DJI itself**. Emulation mode, not an improvement (DCR beats it 3×) — but it
-delivers DJI's one attractive property, **bounded crop demand**, executed cleaner than DJI; the
-crop-guaranteed hybrid is `--enhanced --deviation-clamp-soft 8..10`. → `SMOOTHING_RND.md` §8j.
+roughness than DJI itself**. Both clamps still distort the waveform (per-sample saturation clips
+the cadence sinusoid → 2nd-harmonic 0.27–0.37 vs DJI's 0.039 — the "split peaks", §8j-5).
+**The principled fix is joint optimization: L1 with a small box** (`--smoothing l1
+--l1-deviation B`, this branch, §8j-6/7) — smooth+budget solved as ONE convex problem gives
+piecewise-polynomial arcs that ride the box tangentially: harmonic 0.043–0.062 = DJI-clean.
+Tuned to the crop budget (**box 12° = largest box inside the 130 % clamp**), **L1 beats DJI on
+every measure**: dy 5.20 vs 5.95 (−12 %), every band lower, roughness −30 %, zero border.
+Full 0004 ladder: DCR 1.95 < EMA 4.04 < **L1 box12 5.20** < soft clamp 5.94 ≈ DJI 5.95 < hard
+clamp 6.95. Final map: **DCR/EMA for max steadiness (unbounded), L1-with-box for the
+guaranteed-crop class (beats DJI), soft clamp as the cheap real-time approximation** (~µs vs
+L1's ~2 s/66 s clip). Next: derive the box from `max_zoom` automatically (self-tuning
+crop-budget L1). → `SMOOTHING_RND.md` §8j–§8j-8, `figures/all_bounded_experiments_dy*.png`.
 
 **Independent replication — fresh footage (2026-07-08 shoot).** Two new matched pairs
 (`dji6_L/20260708` 0003/0004, stab-off, our DCR 16:9 render vs `dji6_R/20260708` 0005/0006,
