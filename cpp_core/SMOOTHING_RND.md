@@ -706,6 +706,27 @@ coupling is the productization item already on the list (derive B from `max_zoom
 a self-tuning "max quality within the crop budget" L1 mode). Output:
 `dji6_L/20260708/0004_D_cpp_l1box12.mp4`.
 
+**8j-8. Converged three-way picture (EMA vs DJI vs L1), violent clip 0004** — figure
+`ema_vs_dji_vs_l1_dy.png` (trace zoom / spectrum / summary bars):
+
+| method | dy RMS | roughness | 2nd-harm (waveform) | max required zoom |
+|---|---:|---:|---:|---:|
+| plain two-pass EMA (no DCR) | **4.039** | **2.269** | 0.132 | 1.18 |
+| DJI in-camera | 5.951 | 5.300 | **0.039** | bounded (n/a) |
+| L1 box 12° | 5.204 | 3.720 | **0.062** | 1.28 |
+
+- **Unconstrained class:** the plain velocity-adaptive EMA is the steadiest of the three (dy 4.04)
+  at modest crop demand (1.18) — and DCR pushes further still (1.95 at required 1.8, clamped).
+  Nothing bounded can match this; the guarantee costs amplitude.
+- **Bounded class:** L1 box 12° beats DJI on amplitude (−12 %) AND roughness (−30 %) with an
+  equally clean waveform — the class winner (§8j-7).
+- **Waveform cleanliness is its own axis:** even the plain EMA shows a mild 2nd-harmonic (0.132,
+  3× DJI) — its velocity-adaptive α modulation is itself a weak per-sample nonlinearity. Only the
+  jointly-optimized L1 (0.062) reaches DJI's (0.039) distortion-free class.
+
+So the final map: **DCR / EMA for maximum steadiness (unbounded crop demand), L1-with-box for the
+guaranteed-crop class (beats DJI), soft clamp as its cheap real-time approximation.**
+
 ---
 
 ## Bottom line & next steps
