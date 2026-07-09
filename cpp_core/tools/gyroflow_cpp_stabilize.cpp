@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
     double zoom_look_ahead = -1.0;         // <0 = offline; >=0 = real-time FOV look-ahead (s)
     bool per_axis = false;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
+    double master_smoothness = 0.5, dev_clamp = 0.0;
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;   // 0 = offline; >0 = in-camera finite look-ahead (s)
@@ -125,6 +126,8 @@ int main(int argc, char** argv) {
         else if (a == "--max-zoom") max_zoom = std::stod(next("--max-zoom"));
         else if (a == "--zoom-method") zoom_method = next("--zoom-method");
         else if (a == "--zoom-look-ahead") zoom_look_ahead = std::stod(next("--zoom-look-ahead"));
+        else if (a == "--smoothness") master_smoothness = std::stod(next("--smoothness"));
+        else if (a == "--deviation-clamp") dev_clamp = std::stod(next("--deviation-clamp"));
         else if (a == "--per-axis") per_axis = true;
         else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
         else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
@@ -223,6 +226,8 @@ int main(int argc, char** argv) {
                                   static_cast<double>(height) * height);
     sp.camera_diagonal_fov =
         2.0 * std::atan(diag / (2.0 * lens.camera_matrix.fy)) * 180.0 / 3.14159265358979323846;
+    sp.smoothness = master_smoothness;
+    sp.deviation_clamp_deg = dev_clamp;
     sp.per_axis = per_axis;
     sp.smoothness_pitch = sm_pitch;
     sp.smoothness_yaw = sm_yaw;

@@ -183,6 +183,15 @@ jitter, 2–3×) with **5× lower** frame-to-frame roughness — the "cleaner DJ
 plot-scale + spectral-peakiness illusion. → `SMOOTHING_RND.md` §8i,
 `figures/dy_spectrum_ours_vs_dji.png`.
 
+**What DJI's filter actually is (§8j, confirmed by experiment):** a **bounded-deviation
+follower** — on violent footage its attenuation collapses frequency-flat (~2× in every band), the
+signature of a crop budget saturating, not a differently-tuned low-pass (no τ/smoothness setting
+reproduces it). Implemented `--deviation-clamp B` (clamp smoothed path to B° from raw; off by
+default): a clamp-5° render matches DJI within ~15–20 % on every measure. Emulation mode, not an
+improvement (DCR beats it 3×) — but it delivers DJI's one attractive property, **hard-bounded crop
+demand** (zero cropping at 5°), and suggests the hybrid `--enhanced --deviation-clamp 8..10` for
+crop-guaranteed DCR. → `SMOOTHING_RND.md` §8j.
+
 **Independent replication — fresh footage (2026-07-08 shoot).** Two new matched pairs
 (`dji6_L/20260708` 0003/0004, stab-off, our DCR 16:9 render vs `dji6_R/20260708` 0005/0006,
 DJI in-camera 4:3; durations match to <1 s). dy RMS px @640, band split, roughness:

@@ -44,6 +44,15 @@ struct DefaultAlgoParams {
     double dcr_window_s = 0.5;  // sliding window length (seconds) for the consistency estimate
     double dcr_power = 1.0;     // gate = DCR^dcr_power; >1 sharpens, <1 softens the gating
 
+    // --- Deviation clamp (DJI-like bounded-deviation behaviour) ----------------------------
+    // Not part of upstream Gyroflow. Clamp the smoothed path to a maximum geodesic angle from
+    // the raw path: wherever angle(smoothed, raw) > B the smoothed orientation is pulled back
+    // along the geodesic to exactly B. This reproduces the amplitude-limited ("follow with
+    // bounded deviation") behaviour measured on DJI in-camera stabilization — a frequency-FLAT
+    // attenuation collapse under violent motion (SMOOTHING_RND §8j) — and bounds the crop
+    // demand (required zoom) by construction. 0 (default) = off => golden parity preserved.
+    double deviation_clamp_deg = 0.0;
+
     // --- Finite look-ahead (in-camera realizability) ---------------------------------------
     // The forward/backward slerp EMA is zero-phase only with unlimited future. A real-time
     // in-camera implementation buffers just this many seconds of future to run the backward

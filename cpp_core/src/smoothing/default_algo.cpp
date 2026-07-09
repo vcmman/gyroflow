@@ -262,6 +262,20 @@ std::vector<TimeQuat> smoothPerAxis(const std::vector<TimeQuat>& quats, double d
     return out;
 }
 
+// Deviation clamp (DefaultAlgoParams::deviation_clamp_deg): pull each smoothed orientation
+// back along the geodesic toward raw so angle(smoothed, raw) <= B. slerp(raw, smoothed, B/ang)
+// keeps the rotation axis and shrinks only the magnitude. No-op when B <= 0.
+void applyDeviationClamp(const std::vector<TimeQuat>& raw, std::vector<TimeQuat>& smoothed,
+                         double clamp_deg) {
+    if (clamp_deg <= 0.0) return;
+    const double B = clamp_deg / kRadToDeg;
+    for (std::size_t i = 0; i < smoothed.size(); ++i) {
+        const double ang = quatAngle(raw[i].quat.inverse() * smoothed[i].quat);
+        if (ang > B)
+            smoothed[i].quat = slerp(raw[i].quat, smoothed[i].quat, B / ang).normalized();
+    }
+}
+
 } // namespace
 
 std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double duration_ms,
@@ -269,7 +283,11 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
     const std::size_t n = quats.size();
     if (n == 0 || duration_ms <= 0.0) return quats;
 
-    if (p.per_axis) return smoothPerAxis(quats, duration_ms, p);
+    if (p.per_axis) {
+        std::vector<TimeQuat> out = smoothPerAxis(quats, duration_ms, p);
+        applyDeviationClamp(quats, out, p.deviation_clamp_deg);
+        return out;
+    }
 
     const double sample_rate = static_cast<double>(n) / (duration_ms / 1000.0);
     const double rad_to_deg_per_sec = sample_rate * kRadToDeg;
@@ -384,6 +402,7 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
         out[i].timestamp_ms = quats[i].timestamp_ms;
         out[i].quat = smoothed[i].normalized();
     }
+    applyDeviationClamp(quats, out, p.deviation_clamp_deg);
     return out;
 }
 

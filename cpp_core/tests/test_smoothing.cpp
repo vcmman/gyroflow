@@ -183,6 +183,27 @@ int main() {
         assert(totalVariation(sLa) < rawTV);                       // still removes jitter
     }
 
+    // --- deviation clamp: bounds angle(smoothed, raw) by B; 0 = bit-identical off ---
+    {
+        const auto bob = makeBob();
+        const double bdur = bob.back().timestamp_ms - bob.front().timestamp_ms;
+        DefaultAlgoParams off;                       // clamp off (default)
+        DefaultAlgoParams on = off; on.deviation_clamp_deg = 3.0;
+        const auto sOff = smoothDefault(bob, bdur, off);
+        const auto sOn  = smoothDefault(bob, bdur, on);
+        assert(allUnit(sOn));
+        const double B = 3.0 * PI / 180.0;
+        for (std::size_t i = 0; i < bob.size(); ++i)
+            assert(relAngle(bob[i].quat, sOn[i].quat) <= B + 1e-9);   // never beyond the box
+        // the un-clamped smoother deviates beyond 3 deg somewhere on this bob (else no-op test)
+        double mx = 0.0;
+        for (std::size_t i = 0; i < bob.size(); ++i)
+            mx = std::max(mx, relAngle(bob[i].quat, sOff[i].quat));
+        assert(mx > B);
+        DefaultAlgoParams zero = off; zero.deviation_clamp_deg = 0.0;
+        assert(maxDiff(smoothDefault(bob, bdur, zero), sOff) < 1e-15); // 0 == off, bit-identical
+    }
+
     std::printf("test_smoothing: OK\n");
     return 0;
 }

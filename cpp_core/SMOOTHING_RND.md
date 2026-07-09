@@ -542,6 +542,69 @@ bands are all within noise of each other, and DJI's roughness is slightly better
 (0.144 vs 0.165) — consistent with §6 (periphery, not smoothing). Figure:
 `dy_spectrum_ours_vs_dji.png`.
 
+## 8j. What IS DJI's filter? A bounded-deviation follower — reproduced with a clamp (CONFIRMED)
+
+Follow-up question: can our EMA be *tuned* to DJI's frequency characteristic? Answering it
+uncovered what DJI's stabilizer structurally is.
+
+**8j-1. DJI's measured transfer profile is amplitude-dependent, not a frequency shape.**
+Per-band attenuation (original → stabilized) from the 2026-07-08 matched pairs:
+
+| footage | series | <1 Hz | 1–4 Hz | 4–15 Hz |
+|---|---|---:|---:|---:|
+| calm (pair A) | ours (DCR) | 1.5× | 8.6× | 23× |
+| calm | DJI | 1.5× | 6.4× | 16× |
+| violent (pair B) | ours (DCR) | 2.1× | 8.1× | 11.7× |
+| violent | DJI | **1.3×** | **2.3×** | **2.1×** |
+
+On calm footage DJI's profile is the *same shape* as ours (slightly weaker). On violent footage it
+collapses to a **frequency-flat ~2×** — all bands give up proportionally. A linear low-pass cannot
+do that (attenuation must grow with frequency); a uniform collapse is the signature of an
+**amplitude / deviation budget** being exhausted.
+
+**8j-2. No τ/smoothness tuning reaches it.** Sweep on pair B (DCR off, telemetry proxy):
+`--smoothness 0.25` matches DJI's bob band exactly (2.3×) but over-suppresses HF (8.5× vs 2.1×);
+`0.10` matches HF (2.7×) but under-suppresses bob (1.4×). The EMA's attenuation always slopes up
+with frequency — the flat profile is structurally out of reach for any time-constant setting.
+
+**8j-3. A deviation clamp reproduces it (implemented + render-validated).** Added
+`DefaultAlgoParams::deviation_clamp_deg` (`--deviation-clamp B`, off by default → golden intact):
+clamp the smoothed path to a max geodesic angle from raw, `slerp(raw, smoothed, B/angle)` wherever
+`angle > B`. Telemetry sweep (pair B, smoothness 0.5, DCR off):
+
+| config | <1 Hz | 1–4 Hz | 4–15 Hz | max required zoom |
+|---|---:|---:|---:|---:|
+| no clamp | 1.1× | 4.2× | 34× | 1.18 |
+| **clamp 5°** | **1.1×** | **1.9×** | **2.2×** | **0.88** |
+| clamp 3° | 1.1× | 1.4× | 1.6× | 0.81 |
+| DJI (target) | 1.3× | 2.3× | 2.1× | — |
+
+Rendered validation (0004 full clip, image-domain dy bands):
+
+| series | dy RMS | <1 Hz | 1–4 Hz | 4–15 Hz | attenuation | roughness |
+|---|---:|---:|---:|---:|---|---:|
+| original | 12.595 | 2.861 | 10.398 | 6.505 | — | 10.64 |
+| our DCR | 1.953 | 1.365 | 1.282 | 0.554 | 2.1/8.1/11.7× | 0.98 |
+| **clamp 5°** | **6.949** | 1.826 | 5.544 | 3.771 | **1.6/1.9/1.7×** | 6.07 |
+| DJI in-camera | 5.951 | 2.267 | 4.564 | 3.073 | **1.3/2.3/2.1×** | 5.30 |
+
+The clamp-5° render lands within ~15–20 % of DJI on **every** measure — total dy, all three bands,
+roughness, and the frequency-flat attenuation signature. Output:
+`dji6_L/20260708/0004_D_cpp_clamp5.mp4` (visually: follows the violent motion like DJI does).
+
+**Conclusions:**
+1. **DJI in-camera ≈ "smooth + bounded deviation" (a crop-budget-limited follower), not a
+   differently-tuned low-pass.** Its violent-footage behaviour is the budget saturating.
+2. **To emulate the DJI look:** `--deviation-clamp 5` (DCR off). To merely match its bob band with
+   a pure EMA: `--smoothness 0.25` (but that can't reproduce the flat profile).
+3. **This is an emulation mode, not an improvement** — DCR beats it 3× on shake. The clamp's real
+   value is the property that makes DJI's trade attractive: **hard-bounded crop demand** (max
+   required zoom 0.88 at 5° = zero cropping needed, no black-border risk by construction) —
+   directly useful for an in-camera product with a fixed crop budget, and structurally the same
+   mechanism as L1's crop box.
+4. **Hybrid worth testing next:** `--enhanced --deviation-clamp B` with a *generous* B (~8–10°) —
+   DCR-quality smoothing in the common case with a hard crop/latency guarantee at the extremes.
+
 ---
 
 ## Bottom line & next steps
