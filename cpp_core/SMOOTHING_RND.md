@@ -683,6 +683,29 @@ cost ~2 s for a 66 s clip (2000 ADMM iterations) vs microseconds for the clamps;
 remains a reasonable cheap approximation for in-camera use, and the AGC/envelope-gain idea (8j-5a)
 is the middle ground if L1 is too heavy. Output: `dji6_L/20260708/0004_D_cpp_l1box5.mp4`.
 
+**8j-7. Tuning the box — L1 box 12° beats DJI on every measure (dy −29 %).** Two candidate levers
+for lowering `dy` further, swept on telemetry then render-confirmed:
+- **Velocity weight w₁ is NOT the lever** (10→100 gives −2 % dy and *worsens* the harmonic ratio
+  0.087→0.139 — per-sample velocity pressure re-introduces mild waveform distortion). Keep the
+  jerk-dominant defaults (10/1/100).
+- **Box size is the lever**: 5→8→12° (per-axis) drops proxy dy 2.25→2.00→1.88, and — key point —
+  **box 12° is the largest box whose required zoom stays inside the default 130 % clamp**
+  (maxReqZ 1.278): the crop-budget-optimal L1. Rendered 0004:
+
+| series | dy RMS | <1 Hz | 1–4 Hz | 4–15 Hz | roughness | 2nd-harm | bb mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| L1 box 5° | 7.328 | 2.282 | 6.348 | 2.862 | 5.197 | 0.043 | 0.005 % |
+| **L1 box 12°** | **5.204** | **1.881** | **4.353** | **2.144** | **3.720** | 0.062 | 0.005 % |
+| DJI in-camera | 5.951 | 2.267 | 4.564 | 3.073 | 5.300 | 0.039 | 0.002 % |
+
+→ **L1 box 12° is strictly better than DJI in the bounded-crop class**: dy −12 %, every band lower,
+roughness −30 %, waveform still clean (0.062), zero geometric border, crop bounded by construction.
+dy path: 7.33 (box 5) → **5.20 (box 12)**, i.e. −29 % from box tuning alone. Continuing to grow the
+box converges toward DCR quality (1.95) but the required zoom leaves the clamp — the box↔max_zoom
+coupling is the productization item already on the list (derive B from `max_zoom` automatically →
+a self-tuning "max quality within the crop budget" L1 mode). Output:
+`dji6_L/20260708/0004_D_cpp_l1box12.mp4`.
+
 ---
 
 ## Bottom line & next steps
