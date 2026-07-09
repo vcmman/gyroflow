@@ -34,7 +34,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `all_bounded_experiments_dy_400_900.png` | cached dy (0004) | frames 400–900 window (calm→violent transition), per-window RMS |
 | `run0002_bounded_experiments_dy.png` | cached dy (run 0002) | replication on run 0002: ladder INVERTS — L1 box12 beats even DCR (0.639 vs 0.767) when the box doesn't bind; §8j-9 |
 | `run0002_bounded_experiments_dy_full.png` | cached dy (run 0002) | same, full 1487 frames |
-| `unified_4x3_dy_accel_jerk.png` | cached dy (4:3) + validate CSVs | unified matched-4:3: 4 clips × {default, DCR, offline L1, rt-L1(1s)} vs DJI — rt-L1 ≡ offline L1 in dy/accel (small jerk premium); L1 wins 3/4, DCR the most violent; §8m/§8o |
+| `unified_4x3_dy_accel_jerk.png` | cached dy (4:3) + validate CSVs | FINAL unified matched-4:3: 4 clips × {default, AGC-8, DCR, offline L1, rt-L1} vs DJI — rt-L1 ≡ offline L1; rt-L1 beats AGC on all quality metrics except the box-binding clip; §8m/§8o |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,

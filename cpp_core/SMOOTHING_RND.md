@@ -944,6 +944,24 @@ a **receding-horizon** variant (`--l1-look-ahead S`; `<0` = offline global, unch
   rt default) ≈ 11× realtime** and closes dy/accel exactly (0.306 vs 0.304). The three euler
   channels are independent → parallelize to ~33× realtime on 3 cores if needed.
 
+**rt-L1 vs the deviation AGC (the two real-time bounded modes, head-to-head; AGC from
+`claude/deviation-agc`, §8n):**
+
+| metric (4 clips) | AGC 8° | rt-L1 (1s) | ratio |
+|---|---|---|---|
+| dy (matched 4:3) | 0.727 / 1.606 / 0.351 / **4.647** | **0.306 / 0.669 / 0.283** / 4.915 | rt-L1 up to **2.4×** better |
+| accel (°/s²) | 54 / 93 / 35 / 219 | **19 / 29 / 21 / 180** | rt-L1 2–3× better |
+| jerk (°/s³) | 1300 / 1220 / 813 / 3242 | **292 / 388 / 236 / 1674** | rt-L1 3–4× better |
+| waveform (2nd-harm) | 0.078 | ~0.079 (image) | same clean class |
+| compute | **O(n), µs-class** | ~11× realtime (ADMM) | AGC ~1000× cheaper |
+
+**rt-L1 dominates the AGC on every quality metric wherever its box doesn't bind** (2.4× dy on the
+run clips); the one clip AGC edges it (0004, 4.647 vs 4.915) is the box-binding regime where the
+AGC inherits its wrapped default-EMA — the same box-vs-violence law again. The AGC's remaining
+claims are its trivial O(n) cost and implementation size (~50 lines vs the ADMM solver). Verdict
+for an in-camera product: **rt-L1 is the quality choice; the AGC is the ultra-low-cost fallback**
+for platforms where even 11× realtime (or ~33× parallelized) is too much.
+
 ---
 
 ## Bottom line & next steps
