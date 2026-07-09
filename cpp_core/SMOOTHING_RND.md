@@ -733,6 +733,38 @@ L1 box5 / L1 box12 / DJI): `all_bounded_experiments_dy.png` (trace zooms + sorte
 (calm→violent transition window). Full dy ladder on 0004: DCR 1.95 < EMA 4.04 < **L1 box12 5.20**
 < soft clamp 5.94 ≈ DJI 5.95 < hard clamp 6.95 < L1 box5 7.33 < original 12.60.
 
+## 8j-9. Replication on run 0002 — the ladder INVERTS: L1 box12 beats even DCR
+
+Repeated the whole experiment matrix on the original violent running clip (`dji6_L/run` 0002,
+1487 frames, original dy 8.53 px — less violent than 0004's 12.6). Figures:
+`run0002_bounded_experiments_dy.png` / `_full.png`.
+
+| rank | config | dy RMS | roughness | note |
+|---|---|---:|---:|---|
+| **1** | **L1 box 12°** | **0.639** | **0.218** | **beats DCR** |
+| 2 | DCR | 0.767 | 0.220 | |
+| 3 | EMA default | 1.300 | 0.383 | |
+| 4 | L1 box 5° | 3.100 | 1.009 | beats DJI |
+| 5 | soft clamp 5° | 3.230 | 2.116 | beats DJI |
+| 6 | hard clamp 5° | 3.814 | 3.687 | ≈ DJI |
+| 7 | DJI in-camera | 3.815 | 1.237 | |
+| 8 | original | 8.534 | 5.781 | |
+
+**Key finding — the box-vs-violence law.** On 0002 the 12° box barely binds (max required zoom
+1.329, 9 frames marginally past the clamp), so L1 acts as an (almost) *unconstrained global
+optimizer* — and it **beats the greedy recursive EMA family outright** (0.639 vs DCR's 0.767 at
+equal roughness). Combined with 0004 (box binds → DCR wins 1.95 vs 5.20) the rule is:
+
+> **when the clip's demand fits inside the crop budget, jointly-optimized L1 is the best smoother
+> we have; when demand exceeds the budget, the unbounded DCR wins on amplitude.**
+
+This makes 0c′ (derive the box from `max_zoom` automatically) more than a convenience — a
+self-tuning L1 would inherit the best of both regimes on a per-clip basis, and is the natural
+candidate to challenge DCR as the default. Also note: on 0002 *every* bounded config of ours beats
+DJI (even L1 box5 / soft clamp). (Harmonic-ratio caveat: for heavily-smoothed configs — L1 box12 /
+DCR — the 2nd/fund ratio is meaningless because the fundamental itself is crushed; their absolute
+harmonic energy is the lowest of all.)
+
 ---
 
 ## Bottom line & next steps

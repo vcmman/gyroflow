@@ -32,6 +32,8 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `all_bounded_experiments_dy.png` | cached dy (0004) | every clamp + L1 experiment in one view: bounded/unconstrained trace zooms + all 8 configs sorted by dy RMS with roughness + harmonic; §8j-8 |
 | `all_bounded_experiments_dy_full.png` | cached dy (0004) | same series over the full 1973 frames (envelope/distribution view) |
 | `all_bounded_experiments_dy_400_900.png` | cached dy (0004) | frames 400–900 window (calm→violent transition), per-window RMS |
+| `run0002_bounded_experiments_dy.png` | cached dy (run 0002) | replication on run 0002: ladder INVERTS — L1 box12 beats even DCR (0.639 vs 0.767) when the box doesn't bind; §8j-9 |
+| `run0002_bounded_experiments_dy_full.png` | cached dy (run 0002) | same, full 1487 frames |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,

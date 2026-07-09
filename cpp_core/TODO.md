@@ -78,6 +78,9 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
 - **0c′. Self-tuning crop-budget L1** (§8j-7/8): derive the per-axis box B from `max_zoom`
   automatically (box 12° ≈ the 130 % clamp boundary on 0004) → a parameter-free "max quality
   within the crop budget" bounded mode that beats DJI (dy −12 %, roughness −30 %, clean waveform).
+  **Upgraded by §8j-9:** when the box doesn't bind (run 0002) L1 box12 beats even DCR (0.639 vs
+  0.767) — a self-tuning L1 inherits the best of both regimes and is the natural challenger to
+  DCR as the default.
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.
