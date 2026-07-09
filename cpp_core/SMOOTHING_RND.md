@@ -591,6 +591,8 @@ Rendered validation (0004 full clip, image-domain dy bands):
 The clamp-5° render lands within ~15–20 % of DJI on **every** measure — total dy, all three bands,
 roughness, and the frequency-flat attenuation signature. Output:
 `dji6_L/20260708/0004_D_cpp_clamp5.mp4` (visually: follows the violent motion like DJI does).
+Figure: `figures/deviation_clamp_vs_dji.png` (dy trace / PSD / smoothed-path angular acceleration —
+the clamp tracks DJI in all three views; DCR is the only config that kills the cadence peak).
 
 **Conclusions:**
 1. **DJI in-camera ≈ "smooth + bounded deviation" (a crop-budget-limited follower), not a
