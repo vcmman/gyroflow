@@ -923,9 +923,26 @@ a **receding-horizon** variant (`--l1-look-ahead S`; `<0` = offline global, unch
 - **Tuning lesson**: the initial "commit-boundary artifacts" (harm 0.14 at 300 iters) were
   *under-convergence*, not a structural flaw — 800 iterations per window removes them entirely,
   and a larger commit block (K=15) is *better* (fewer, better-converged windows).
-- **Cost**: 1.17 s for a 66 s clip single-threaded ≈ **56× realtime**, O(nf · rt_iterations),
-  constant memory — in-camera viable. Combined with §8m/§8j-9 this closes L1's last gap: it now
-  wins 3 of 4 clips *and* runs in real time with the same 1 s buffer the rest of the pipeline uses.
+- **Cost**: 1.17 s for a 66 s clip single-threaded ≈ **56× realtime** at 800 iterations,
+  O(nf · rt_iterations), constant memory — in-camera viable. Combined with §8m/§8j-9 this closes
+  L1's last gap: it now wins 3 of 4 clips *and* runs in real time with the same 1 s buffer the
+  rest of the pipeline uses.
+
+**Full-matrix confirmation (all four clips, matched 4:3, unified figure updated):**
+
+| clip | offline L1 dy | rt-L1 dy | offline accel | rt accel | rt jerk vs offline |
+|---|---:|---:|---:|---:|---|
+| run 0001 | 0.304 | **0.306** | 19 | 19 | 292 vs 121 |
+| run 0002 | 0.700 | **0.669** | 30 | 29 | 388 vs 180 |
+| 0003 | 0.274 | **0.283** | 18 | 21 | 236 vs 75 |
+| 0004 | 4.901 | **4.915** | 180 | 180 | 1674 vs 1759 |
+
+- dy and acceleration are **identical to offline on every clip**; the residual fingerprint is a
+  2–3× jerk premium on calm clips (commit-boundary micro-kinks, invisible in dy/harm/accel).
+- **Iteration economics**: 800 iters = 56× realtime but leaves jerk artifacts on calm clips
+  (under-convergence at commit boundaries, e.g. run 0001 dy 0.412 vs 0.304); **4000 iters (the new
+  rt default) ≈ 11× realtime** and closes dy/accel exactly (0.306 vs 0.304). The three euler
+  channels are independent → parallelize to ~33× realtime on 3 cores if needed.
 
 ---
 

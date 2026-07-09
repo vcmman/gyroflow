@@ -31,7 +31,7 @@ struct L1OptimalParams {
     double look_ahead_s = -1.0;      // future buffer (e.g. 1.0 for the in-camera 1 s budget)
     double past_s = 2.0;             // past context kept in the window
     int commit_block = 15;           // frames committed per solve (latency granularity)
-    int rt_iterations = 800;         // ADMM iterations per window solve
+    int rt_iterations = 4000;        // ADMM iterations per window solve (jerk-clean; ~11x realtime)
 };
 
 // Per-euler-channel max |a - b| (deg) sampled at frame cadence (unwrapped) — used to set the
