@@ -128,6 +128,7 @@ Stabilization options:
 | `--look-ahead <s>` | 0 (offline) | In-camera finite look-ahead for the smoothing backward pass (§7). |
 | `--smoothness <0..1>` | 0.5 | Master smoothing slider (Gyroflow's); lower = follow more. |
 | `--deviation-clamp <deg>` | 0 (off) | Bound the smoothed path to ≤ B° from raw — DJI-like bounded-deviation mode, hard-bounded crop demand (§8j). |
+| `--deviation-clamp-soft <deg> [--deviation-clamp-ref-tau 0.02]` | 0 (off) | Soft (burr-free) variant: smooth box center + tanh saturation — DJI's amplitude with 37 % less roughness than DJI (§8j-4). |
 | `--zoom-method envelope\|gaussian` | envelope | Dynamic-zoom temporal smoother (both golden-validated). |
 | `--zoom-look-ahead <s>` | −1 (offline) | Real-time dynamic-zoom envelope with this much future; fixes causal zoom pops (§8h). |
 | `--max-zoom <pct>` | 130 | Dynamic-zoom ceiling (percent). |

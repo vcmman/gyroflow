@@ -187,10 +187,13 @@ plot-scale + spectral-peakiness illusion. → `SMOOTHING_RND.md` §8i,
 follower** — on violent footage its attenuation collapses frequency-flat (~2× in every band), the
 signature of a crop budget saturating, not a differently-tuned low-pass (no τ/smoothness setting
 reproduces it). Implemented `--deviation-clamp B` (clamp smoothed path to B° from raw; off by
-default): a clamp-5° render matches DJI within ~15–20 % on every measure. Emulation mode, not an
-improvement (DCR beats it 3×) — but it delivers DJI's one attractive property, **hard-bounded crop
-demand** (zero cropping at 5°), and suggests the hybrid `--enhanced --deviation-clamp 8..10` for
-crop-guaranteed DCR. → `SMOOTHING_RND.md` §8j.
+default): a clamp-5° render matches DJI within ~15–20 % on every measure. The hard clamp leaves
+saturation "burrs" (raw HF passes through while riding the box); the **soft variant**
+(`--deviation-clamp-soft B`, smooth box center τ0.02 + tanh saturation, §8j-4) fixes them and
+lands **exactly on DJI's amplitude (dy 5.944 vs 5.951) with 39 % less HF jitter and 37 % less
+roughness than DJI itself**. Emulation mode, not an improvement (DCR beats it 3×) — but it
+delivers DJI's one attractive property, **bounded crop demand**, executed cleaner than DJI; the
+crop-guaranteed hybrid is `--enhanced --deviation-clamp-soft 8..10`. → `SMOOTHING_RND.md` §8j.
 
 **Independent replication — fresh footage (2026-07-08 shoot).** Two new matched pairs
 (`dji6_L/20260708` 0003/0004, stab-off, our DCR 16:9 render vs `dji6_R/20260708` 0005/0006,

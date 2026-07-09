@@ -607,6 +607,36 @@ the clamp tracks DJI in all three views; DCR is the only config that kills the c
 4. **Hybrid worth testing next:** `--enhanced --deviation-clamp B` with a *generous* B (~8–10°) —
    DCR-quality smoothing in the common case with a hard crop/latency guarantee at the extremes.
 
+**8j-4. Fixing the hard clamp's "burrs" — the SOFT clamp (implemented, render-validated).**
+The hard clamp matches DJI's amplitude/spectrum but its trace is full of burrs at the violent
+peaks. Diagnosis (measured on 0004): the clip rides the box **55 %** of the time; while saturated
+the path moves at **0.70× raw speed** (raw's HF jitter passes through ~1:1, because the box is
+centered on the *instantaneous* raw pose), and there are **~4.9 box entry/exits per second**, each
+a C¹ kink. The hard projection is a memoryless non-smooth operator — DJI's limiter clearly isn't.
+
+Fix — `--deviation-clamp-soft B [--deviation-clamp-ref-tau 0.02]` (off by default, golden intact):
+1. the box center becomes a **smooth reference** (zero-phase EMA of raw). The ref τ is critical
+   and must be *short*: τ=0.1 s failed outright (ref itself swings 10–15° from raw during the bob,
+   so the box binds on the wrong thing — maxDev 15°, crop bound lost, spectrum ≈ unclamped).
+   τ≈0.02 s tracks the 1–4 Hz bob ≈1:1 (box still binds, bound ≈ B+2°) while carrying no >6 Hz
+   jitter into the output;
+2. the hard wall becomes the smooth saturating map `d_soft = B·tanh(d/B)` — no kinks.
+
+Rendered result (0004, image domain):
+
+| series | dy RMS | 1–4 Hz | 4–15 Hz | roughness |
+|---|---:|---:|---:|---:|
+| hard clamp 5° | 6.949 | 5.544 | 3.771 | 6.074 |
+| **soft clamp 5° τ0.02** | **5.944** | 5.375 | **1.889** | **3.317** |
+| DJI in-camera | 5.951 | 4.564 | 3.073 | 5.300 |
+
+The soft clamp lands **exactly on DJI's amplitude** (5.944 vs 5.951) and passes the cadence the
+same way — but with **39 % less 4–15 Hz jitter and 37 % less roughness than DJI itself**. I.e. the
+same bounded-deviation trade DJI makes, executed cleaner. Path acceleration −38 % vs the hard
+clamp (899 → 557 °/s² telemetry; DCR = 60 for reference). This upgrades conclusion 4: the hybrid
+should use the **soft** clamp (`--enhanced --deviation-clamp-soft 8..10`). Output:
+`dji6_L/20260708/0004_D_cpp_softclamp5.mp4`; figure updated (`deviation_clamp_vs_dji.png`).
+
 ---
 
 ## Bottom line & next steps

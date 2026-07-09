@@ -53,6 +53,17 @@ struct DefaultAlgoParams {
     // demand (required zoom) by construction. 0 (default) = off => golden parity preserved.
     double deviation_clamp_deg = 0.0;
 
+    // Soft variant of the deviation clamp (SMOOTHING_RND §8j-4). The hard clamp is a memoryless
+    // projection onto a box centered on the INSTANTANEOUS raw pose: while saturated the output
+    // tracks raw's high-frequency jitter ~1:1, and every box entry/exit is a C1 kink — the
+    // "burrs" at violent peaks. The soft variant fixes both: the box center is a smooth
+    // reference (zero-phase EMA of raw, tau = alpha_0_1s) and the deviation is compressed with
+    // a smooth saturating map d_soft = B*tanh(d/B) instead of a hard wall. Deviation from RAW
+    // is then bounded by ~B plus the (small) ref-vs-raw residual, i.e. the crop bound becomes
+    // approximate. 0 (default) = off. If both clamps are set, the soft one wins.
+    double deviation_clamp_soft_deg = 0.0;
+    double deviation_clamp_ref_tau_s = 0.03;  // smooth-reference EMA tau for the soft clamp
+
     // --- Finite look-ahead (in-camera realizability) ---------------------------------------
     // The forward/backward slerp EMA is zero-phase only with unlimited future. A real-time
     // in-camera implementation buffers just this many seconds of future to run the backward

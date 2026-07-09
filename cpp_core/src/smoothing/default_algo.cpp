@@ -276,6 +276,33 @@ void applyDeviationClamp(const std::vector<TimeQuat>& raw, std::vector<TimeQuat>
     }
 }
 
+// Soft deviation clamp (DefaultAlgoParams::deviation_clamp_soft_deg). Two changes vs the hard
+// clamp, killing its saturation "burrs" (§8j-4):
+//   1. the box center is a SMOOTH reference — a zero-phase (fwd+bwd) EMA of raw with tau =
+//      ref_tau_s — so raw's high-frequency jitter does not pass through while saturated;
+//   2. the deviation is compressed with the smooth saturating map d_soft = B*tanh(d/B)
+//      (slope 1 at d=0, asymptote B) instead of a hard wall — no C1 kinks at box crossings.
+void applyDeviationClampSoft(const std::vector<TimeQuat>& raw, std::vector<TimeQuat>& smoothed,
+                             double clamp_deg, double sample_rate, double ref_tau_s) {
+    if (clamp_deg <= 0.0) return;
+    const std::size_t n = smoothed.size();
+    const double B = clamp_deg / kRadToDeg;
+    const double a = 1.0 - std::exp(-(1.0 / sample_rate) / ref_tau_s);
+    // smooth reference path (box center): zero-phase EMA of raw
+    std::vector<Quaternion> ref(n);
+    Quaternion q = raw.front().quat;
+    for (std::size_t i = 0; i < n; ++i) { q = slerp(q, raw[i].quat, a); ref[i] = q; }
+    q = ref[n - 1];
+    for (std::size_t i = n; i-- > 0;) { q = slerp(q, ref[i], a); ref[i] = q; }
+    for (std::size_t i = 0; i < n; ++i) {
+        const double ang = quatAngle(ref[i].inverse() * smoothed[i].quat);
+        if (ang > 1e-9) {
+            const double d_soft = B * std::tanh(ang / B);
+            smoothed[i].quat = slerp(ref[i], smoothed[i].quat, d_soft / ang).normalized();
+        }
+    }
+}
+
 } // namespace
 
 std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double duration_ms,
@@ -285,7 +312,11 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
 
     if (p.per_axis) {
         std::vector<TimeQuat> out = smoothPerAxis(quats, duration_ms, p);
-        applyDeviationClamp(quats, out, p.deviation_clamp_deg);
+        if (p.deviation_clamp_soft_deg > 0.0)
+            applyDeviationClampSoft(quats, out, p.deviation_clamp_soft_deg,
+                                    static_cast<double>(n) / (duration_ms / 1000.0), p.deviation_clamp_ref_tau_s);
+        else
+            applyDeviationClamp(quats, out, p.deviation_clamp_deg);
         return out;
     }
 
@@ -402,7 +433,10 @@ std::vector<TimeQuat> smoothDefault(const std::vector<TimeQuat>& quats, double d
         out[i].timestamp_ms = quats[i].timestamp_ms;
         out[i].quat = smoothed[i].normalized();
     }
-    applyDeviationClamp(quats, out, p.deviation_clamp_deg);
+    if (p.deviation_clamp_soft_deg > 0.0)
+        applyDeviationClampSoft(quats, out, p.deviation_clamp_soft_deg, sample_rate, p.deviation_clamp_ref_tau_s);
+    else
+        applyDeviationClamp(quats, out, p.deviation_clamp_deg);
     return out;
 }
 

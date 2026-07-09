@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     bool per_axis = false;
     double sm_pitch = 0.5, sm_yaw = 0.5, sm_roll = 0.5;
     double master_smoothness = 0.5;
-    double dev_clamp = 0.0;
+    double dev_clamp = 0.0, dev_clamp_soft = 0.0, dev_ref_tau = 0.03;
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;
@@ -57,6 +57,8 @@ int main(int argc, char** argv) {
         else if (a == "--zoom-look-ahead") zoom_look_ahead = std::stod(next("--zoom-look-ahead"));
         else if (a == "--smoothness") master_smoothness = std::stod(next("--smoothness"));
         else if (a == "--deviation-clamp") dev_clamp = std::stod(next("--deviation-clamp"));
+        else if (a == "--deviation-clamp-soft") dev_clamp_soft = std::stod(next("--deviation-clamp-soft"));
+        else if (a == "--deviation-clamp-ref-tau") dev_ref_tau = std::stod(next("--deviation-clamp-ref-tau"));
         else if (a == "--per-axis") per_axis = true;
         else if (a == "--smoothness-pitch") sm_pitch = std::stod(next("--smoothness-pitch"));
         else if (a == "--smoothness-yaw") sm_yaw = std::stod(next("--smoothness-yaw"));
@@ -122,6 +124,8 @@ int main(int argc, char** argv) {
         2.0 * std::atan(diag / (2.0 * lens.camera_matrix.fy)) * 180.0 / 3.14159265358979323846;
     sp.smoothness = master_smoothness;
     sp.deviation_clamp_deg = dev_clamp;
+    sp.deviation_clamp_soft_deg = dev_clamp_soft;
+    sp.deviation_clamp_ref_tau_s = dev_ref_tau;
     sp.per_axis = per_axis;
     sp.smoothness_pitch = sm_pitch;
     sp.smoothness_yaw = sm_yaw;

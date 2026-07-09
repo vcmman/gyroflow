@@ -202,6 +202,19 @@ int main() {
         assert(mx > B);
         DefaultAlgoParams zero = off; zero.deviation_clamp_deg = 0.0;
         assert(maxDiff(smoothDefault(bob, bdur, zero), sOff) < 1e-15); // 0 == off, bit-identical
+
+        // soft variant: runs, unit, deviation bounded by ~B + ref residual; 0 == off.
+        DefaultAlgoParams soft = off; soft.deviation_clamp_soft_deg = 3.0;
+        const auto sSoft = smoothDefault(bob, bdur, soft);
+        assert(allUnit(sSoft));
+        double mxs = 0.0;
+        for (std::size_t i = 0; i < bob.size(); ++i)
+            mxs = std::max(mxs, relAngle(bob[i].quat, sSoft[i].quat));
+        // tanh keeps deviation-from-ref < B; deviation-from-raw adds the small ref residual.
+        assert(mxs < 2.0 * B);
+        assert(mxs < 0.9 * mx);  // and it does bind (well below the unclamped deviation)
+        DefaultAlgoParams soft0 = off; soft0.deviation_clamp_soft_deg = 0.0;
+        assert(maxDiff(smoothDefault(bob, bdur, soft0), sOff) < 1e-15);
     }
 
     std::printf("test_smoothing: OK\n");
