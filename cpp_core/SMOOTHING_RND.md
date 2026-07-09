@@ -653,6 +653,36 @@ problem, `min Σ|derivatives| s.t. |path−raw| ≤ B`, is exactly the **L1-opti
 (`claude/speed-bump-jolt-rnd`) with a small box: its solution rides the box as smooth polynomial
 arcs, no clipping, no harmonics, bound exact. Also explains §8c′ (L1 has the flattest crop demand).
 
+**8j-6. Joint optimization VERIFIED — L1 with a small box IS the clean DJI mode (CONFIRMED).**
+The L1 branch was rebased onto the full current stack (this branch now carries DCR/`--enhanced`,
+look-aheads, clamps, `raw_fov` AND `--smoothing l1`; golden md5 unchanged, ctest 7/7). Rendered
+0004 with `--smoothing l1 --l1-deviation 5` and compared all three bounded-deviation
+implementations on the actual pixels:
+
+| series | dy RMS | <1 Hz | 1–4 Hz | roughness | **2nd-harm/fund** |
+|---|---:|---:|---:|---:|---:|
+| hard clamp 5° | 6.949 | 1.826 | 5.544 | 6.074 | 0.366 |
+| soft clamp 5° | 5.944 | 1.697 | 5.375 | 3.317 | 0.269 |
+| **L1 box 5°** | 7.328 | 2.282 | 6.348 | 5.197 | **0.043** |
+| DJI in-camera | 5.951 | 2.267 | 4.564 | 5.300 | **0.039** |
+
+- **The waveform-shape signature matches DJI exactly**: L1's 2nd-harmonic ratio 0.043 vs DJI's
+  0.039 (clamps: 0.27–0.37). In the dy zoom the split peaks are gone — one smooth peak per swing,
+  same as DJI (`clamp_harmonic_distortion.png`, updated). L1's <1 Hz band (2.282) is also nearly
+  identical to DJI's (2.267).
+- Amplitude is tunable by the box: the 5° *per-axis* box (combined geodesic up to ~9°) lets
+  slightly more through than DJI (dy 7.33 vs 5.95); ~4° per-axis would land the amplitude. Path
+  acceleration 326 °/s² — the lowest of the three bounded modes (hard 899 / soft 557).
+- Telemetry HF is crushed (33×) yet image HF stays ~DJI-level — the image-domain HF at these
+  amplitudes is the §3 translational/RS content, unreachable by any rotational path.
+
+**Final ranking of the bounded-deviation ("DJI look") implementations:** L1-joint ≫ soft clamp >
+hard clamp. The sequential filter+limit structure is inherently a waveform clipper; solving
+smooth+box jointly is both the elegant formulation and the measured winner. Practical notes: L1
+cost ~2 s for a 66 s clip (2000 ADMM iterations) vs microseconds for the clamps; the soft clamp
+remains a reasonable cheap approximation for in-camera use, and the AGC/envelope-gain idea (8j-5a)
+is the middle ground if L1 is too heavy. Output: `dji6_L/20260708/0004_D_cpp_l1box5.mp4`.
+
 ---
 
 ## Bottom line & next steps
