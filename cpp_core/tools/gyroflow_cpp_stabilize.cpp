@@ -163,6 +163,7 @@ int main(int argc, char** argv) {
             }
         }
         else if (a == "--l1-iters") l1.iterations = std::stoi(next("--l1-iters"));
+        else if (a == "--l1-look-ahead") l1.look_ahead_s = std::stod(next("--l1-look-ahead"));
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));

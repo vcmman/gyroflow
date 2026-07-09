@@ -87,6 +87,9 @@ int main(int argc, char** argv) {
             }
         }
         else if (a == "--l1-iters") l1.iterations = std::stoi(next("--l1-iters"));
+        else if (a == "--l1-look-ahead") l1.look_ahead_s = std::stod(next("--l1-look-ahead"));
+        else if (a == "--l1-commit") l1.commit_block = std::stoi(next("--l1-commit"));
+        else if (a == "--l1-rt-iters") l1.rt_iterations = std::stoi(next("--l1-rt-iters"));
         else if (a == "--l1-weights") {
             const std::string s = next("--l1-weights");
             const std::size_t c1 = s.find(','), c2 = s.find(',', c1 + 1);

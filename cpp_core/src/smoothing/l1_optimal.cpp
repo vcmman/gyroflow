@@ -143,9 +143,10 @@ struct BandChol {
     }
 };
 
-// ADMM: min sum_k w_k ||D_k p||_1  s.t. |p - c| <= B.  Returns p.
-std::vector<double> l1Channel(const std::vector<double>& c, double B,
-                              const L1OptimalParams& pr, const BandChol& chol) {
+// ADMM: min sum_k w_k ||D_k p||_1  s.t. lo <= p <= hi (per-sample box).  Returns p.
+std::vector<double> l1ChannelBounds(const std::vector<double>& c, const std::vector<double>& blo,
+                                    const std::vector<double>& bhi, const L1OptimalParams& pr,
+                                    const BandChol& chol, int iterations) {
     const std::size_t n = c.size();
     if (n < 4) return c;
     const double w[3] = {pr.w1, pr.w2, pr.w3};
@@ -155,7 +156,7 @@ std::vector<double> l1Channel(const std::vector<double>& c, double B,
         z[k] = applyD(kStencils[k], p);
         u[k].assign(z[k].size(), 0.0);
     }
-    for (int it = 0; it < pr.iterations; ++it) {
+    for (int it = 0; it < iterations; ++it) {
         // p-update: M p = (q - s) + sum_k D_k^T (z_k - u_k)
         std::vector<double> rhs(n);
         for (std::size_t i = 0; i < n; ++i) rhs[i] = q[i] - sdual[i];
@@ -181,13 +182,55 @@ std::vector<double> l1Channel(const std::vector<double>& c, double B,
         // q-update (box projection, over-relaxed) + dual
         for (std::size_t i = 0; i < n; ++i) {
             const double p_hat = a * p[i] + (1.0 - a) * q[i];
-            const double lo = c[i] - B, hi = c[i] + B;
-            const double qnew = std::min(hi, std::max(lo, p_hat + sdual[i]));
+            const double qnew = std::min(bhi[i], std::max(blo[i], p_hat + sdual[i]));
             sdual[i] += p_hat - qnew;
             q[i] = qnew;
         }
     }
     return p;
+}
+
+// Offline wrapper: constant box +-B around the raw channel.
+std::vector<double> l1Channel(const std::vector<double>& c, double B,
+                              const L1OptimalParams& pr, const BandChol& chol) {
+    std::vector<double> blo(c.size()), bhi(c.size());
+    for (std::size_t i = 0; i < c.size(); ++i) { blo[i] = c[i] - B; bhi[i] = c[i] + B; }
+    return l1ChannelBounds(c, blo, bhi, pr, chol, pr.iterations);
+}
+
+// Real-time receding-horizon L1 (§8o): repeatedly solve a small window
+// [past P | commit K | future F] with already-committed samples pinned by a zero-width box
+// (continuity anchor), commit K samples, slide. Streamable with an F-frame future buffer;
+// each window is small so rt_iterations converge far faster than the global solve.
+std::vector<double> l1ChannelRealtime(const std::vector<double>& ch, double B,
+                                      const L1OptimalParams& pr, std::size_t P, std::size_t F,
+                                      std::size_t K) {
+    const std::size_t n = ch.size();
+    if (n < 4) return ch;
+    std::vector<double> out(n);
+    std::size_t committed = 0;
+    while (committed < n) {
+        const std::size_t lo_i = committed > P ? committed - P : 0;
+        const std::size_t hi_i = std::min(n, committed + K + F);   // exclusive
+        const std::size_t W = hi_i - lo_i;
+        if (W < 4) {  // tiny tail: pass raw through (cannot form the stencils)
+            for (std::size_t g = committed; g < n; ++g) out[g] = ch[g];
+            break;
+        }
+        std::vector<double> sub(W), blo(W), bhi(W);
+        for (std::size_t j = 0; j < W; ++j) {
+            const std::size_t g = lo_i + j;
+            sub[j] = ch[g];
+            if (g < committed) { blo[j] = out[g]; bhi[j] = out[g]; }  // pinned history
+            else { blo[j] = ch[g] - B; bhi[j] = ch[g] + B; }
+        }
+        const BandChol chol(W);
+        const std::vector<double> sol = l1ChannelBounds(sub, blo, bhi, pr, chol, pr.rt_iterations);
+        const std::size_t ncommit = std::min(K, n - committed);
+        for (std::size_t j = 0; j < ncommit; ++j) out[committed + j] = sol[committed - lo_i + j];
+        committed += ncommit;
+    }
+    return out;
 }
 
 } // namespace
@@ -236,10 +279,19 @@ std::vector<TimeQuat> smoothL1Optimal(const std::vector<TimeQuat>& quats, double
     }
     for (auto& c : ch) unwrap(c);
 
-    const BandChol chol(nf);  // M depends only on nf — factor once, reuse per channel
     std::array<std::vector<double>, 3> out;
-    for (int k = 0; k < 3; ++k)
-        out[k] = l1Channel(ch[k], params.max_deviation_deg[k] / kDeg, params, chol);
+    if (params.look_ahead_s >= 0.0) {
+        // Real-time receding-horizon mode (§8o).
+        const std::size_t P = static_cast<std::size_t>(std::max(4.0, params.past_s * fps));
+        const std::size_t F = static_cast<std::size_t>(std::max(0.0, params.look_ahead_s * fps));
+        const std::size_t K = static_cast<std::size_t>(std::max(1, params.commit_block));
+        for (int k = 0; k < 3; ++k)
+            out[k] = l1ChannelRealtime(ch[k], params.max_deviation_deg[k] / kDeg, params, P, F, K);
+    } else {
+        const BandChol chol(nf);  // M depends only on nf — factor once, reuse per channel
+        for (int k = 0; k < 3; ++k)
+            out[k] = l1Channel(ch[k], params.max_deviation_deg[k] / kDeg, params, chol);
+    }
 
     std::vector<TimeQuat> result(nf);
     for (std::size_t f = 0; f < nf; ++f) {

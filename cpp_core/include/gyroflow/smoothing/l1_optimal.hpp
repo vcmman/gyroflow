@@ -21,6 +21,17 @@ struct L1OptimalParams {
     int iterations = 2000;           // ADMM iterations
     double rho = 1.0;                // ADMM penalty
     double over_relax = 1.8;         // ADMM over-relaxation (1=off, 1.5-1.8 accelerates)
+
+    // --- Real-time receding-horizon mode (SMOOTHING_RND §8o) ------------------------------
+    // < 0 (default) = offline: one global solve over the whole clip.
+    // >= 0 = in-camera: repeatedly solve a small window [past_s | commit block | look_ahead_s]
+    // with the already-committed samples pinned (zero-width box) for continuity, commit
+    // commit_block frames, slide. Each window solve is small -> rt_iterations converge fast;
+    // total cost O(nf * rt_iterations), streamable with a look_ahead_s future buffer.
+    double look_ahead_s = -1.0;      // future buffer (e.g. 1.0 for the in-camera 1 s budget)
+    double past_s = 2.0;             // past context kept in the window
+    int commit_block = 15;           // frames committed per solve (latency granularity)
+    int rt_iterations = 800;         // ADMM iterations per window solve
 };
 
 // Per-euler-channel max |a - b| (deg) sampled at frame cadence (unwrapped) — used to set the

@@ -888,6 +888,45 @@ This further sharpens 0c′: a self-tuning L1 (box from `max_zoom`, falling back
 behaviour only when the required box would exceed the budget) would be the best-of-all-rows
 single default.
 
+## 8o. Real-time L1 with a 1 s future buffer — offline quality at 56× realtime (CONFIRMED)
+
+The last objection to L1 as an in-camera mode was cost/latency (global offline solve). Implemented
+a **receding-horizon** variant (`--l1-look-ahead S`; `<0` = offline global, unchanged):
+
+- window = [**2 s past context** | **commit block K=15 frames** | **S=1 s future buffer**];
+- already-committed samples are pinned by a zero-width box (continuity anchor — the window
+  solution must pass exactly through the emitted history);
+- solve the small window by the same per-euler ADMM (800 iterations, converges fast at this size),
+  commit K frames, slide. Streamable: needs exactly the S-second future buffer that the smoothing
+  (§7) and zoom (§8h) look-aheads already share.
+
+**Telemetry (0004, box 12°):**
+
+| config | dy proxy | 2nd-harm | accel | maxReqZ | cost (66 s clip) |
+|---|---:|---:|---:|---:|---:|
+| offline L1 (global) | 1.880 | 0.036 | 161 | 1.278 | ~2 s |
+| **rt-L1, 1 s buffer** | **1.879** | **0.033** | **166** | 1.319 | **1.17 s (56× RT)** |
+| rt-L1, 0 s (causal) | 2.148 | 0.724 | 427 | 1.406 | — |
+
+**Rendered (matched 4:3, image domain):**
+
+| series | dy | 1–4 Hz | roughness | harm |
+|---|---:|---:|---:|---:|
+| offline L1 box12 | 4.901 | 4.145 | 3.169 | 0.042 |
+| **rt-L1 1 s** | **4.915** | 4.101 | 3.357 | 0.079 |
+| DJI in-camera | 5.951 | 4.564 | 5.300 | 0.039 |
+
+- **1 s of future is sufficient**: the rt solution is metrically indistinguishable from the global
+  offline solve (dy +0.3 % on pixels, harmonic same class) — and still beats DJI. The causal (0 s)
+  ablation collapses (harm 0.72, accel 2.6×): the future buffer is where the quality comes from,
+  exactly as in §7/§8h.
+- **Tuning lesson**: the initial "commit-boundary artifacts" (harm 0.14 at 300 iters) were
+  *under-convergence*, not a structural flaw — 800 iterations per window removes them entirely,
+  and a larger commit block (K=15) is *better* (fewer, better-converged windows).
+- **Cost**: 1.17 s for a 66 s clip single-threaded ≈ **56× realtime**, O(nf · rt_iterations),
+  constant memory — in-camera viable. Combined with §8m/§8j-9 this closes L1's last gap: it now
+  wins 3 of 4 clips *and* runs in real time with the same 1 s buffer the rest of the pipeline uses.
+
 ---
 
 ## Bottom line & next steps
