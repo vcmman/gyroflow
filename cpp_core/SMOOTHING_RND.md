@@ -988,6 +988,50 @@ violence inside their budget as DJI does). Renders:
 
 ---
 
+## 8p. Eliminating L1 black borders — diagnosis + E2 (static box shrink): works, but too costly
+
+**Why L1 box12 shows black borders at 4:3** (quantified via validate `raw_fov`, breach =
+required zoom > the 1.30 max-zoom clamp): run0001 79 frames (3.4 %, peak demand 1.582),
+run0002 100 (6.7 %, 1.515), 0003 9 (0.1 %), 0004 143 (7.2 %, 1.621). Three stacked root causes:
+
+1. **Per-axis box ≠ total-deviation box**: 12° per euler axis allows a combined 3-axis deviation
+   up to 12√3 ≈ 21° — breach frames measure 15–20° total geodesic deviation.
+2. **Calibration framing mismatch**: box 12 was tuned at 16:9 (0004 maxReqZ 1.278 < 1.30); 4:3
+   uses the full sensor height, so the same angular deviation demands more crop.
+3. **Angle→zoom mapping is not constant**: measured slope k = (reqZ−1)/deviation varies 0.007 →
+   0.0245 with deviation direction / lens position / RS — a static angle box can never be tight
+   in the zoom domain. The constraint belongs in the *zoom* domain.
+
+**Experiment ladder**: E1 raise max-zoom (reference line only) · E2 static box shrink (below) ·
+E3 geometry-derived per-axis box from max_zoom (TODO 0c′) · E4 exact per-frame crop constraint
+via constraint generation (Grundmann's original form) · E5 zoom-side soft ceiling (release the
+clamp transiently for residual breaches).
+
+**E2 result — box 7.5° is the largest all-safe static box at 4:3** (telemetry sweep: box 8
+leaves 2 breach frames on run0001 @1.312; box 7.5 → zero breaches on all four clips, peaks
+1.176–1.271; box 6 large-margin safe at ≤1.173). Rendered box 7.5 on all four clips, matched
+4:3 (image-domain border metric = edge-connected near-black fraction; night-scene floor set by
+the borderless default render):
+
+| clip | box12 dy | **box7.5 dy** | Δ | box12 border (max %) | box7.5 border |
+|---|---:|---:|---:|---:|---:|
+| run 0001 | 0.304 | 0.599 | **+97 %** | 2.36 (real) | 0.84 < floor ✅ |
+| run 0002 | 0.700 | 1.963 | **+180 %** (worse than default 1.606) | 1.42 | 0.32 ≈ floor ✅ |
+| 0003 | 0.274 | 0.360 | +31 % | ≈ floor | ≈ floor ✅ |
+| 0004 | 4.901 | 6.606 | **+35 %** (worse than DJI 5.951) | 3.55 | 0.20 < floor ✅ |
+
+**Verdict: zero black borders achieved, but the static price is unacceptable** — where the box
+binds, the shrink hands back half to all of L1's advantage (run0002 ends up worse than plain
+default; 0004 worse than DJI). A single static box that survives the worst frame of the worst
+clip over-constrains the other 93–99 % of frames. This is exactly the case for **E3/E4**: derive
+the budget from max_zoom geometrically (E3) and tighten only the violating frames via
+constraint generation (E4, expected ≈ box12 dy with zero borders). Renders:
+`{0001,0002}_D_cpp_l1box75_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_l1box75_4x3.mp4`
+(20260708). Side note: DJI's dy (5.95) sits between our box7.5 (6.61) and box12 (4.90) on 0004 —
+its effective deviation budget is bracketed by 7.5°–12° for this lens.
+
+---
+
 ## Bottom line & next steps
 
 - **DCR is a correct rotational-domain improvement** (merged): −45…75% vertical bob, roll bob too,

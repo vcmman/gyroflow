@@ -80,7 +80,12 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   within the crop budget" bounded mode that beats DJI (dy −12 %, roughness −30 %, clean waveform).
   **Upgraded by §8j-9:** when the box doesn't bind (run 0002) L1 box12 beats even DCR (0.639 vs
   0.767) — a self-tuning L1 inherits the best of both regimes and is the natural challenger to
-  DCR as the default.
+  DCR as the default. **Scoped by §8p:** box12 breaches the 130 % clamp on 3–7 % of frames at
+  4:3 (per-axis box ≠ total-deviation bound; angle→zoom slope varies 3.5×), and the static fix
+  (box 7.5°, zero borders) costs +35…180 % dy where it binds — so implement this as E3
+  (geometry-derived per-axis budget from max_zoom) plus E4 (per-frame constraint generation:
+  tighten only violating frames; expected ≈ box12 dy with zero borders) and E5 (transient
+  zoom-clamp release as the residual guard).
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.
