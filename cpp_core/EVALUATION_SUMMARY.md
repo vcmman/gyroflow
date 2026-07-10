@@ -29,6 +29,16 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    unchanged from default (~1.2 %), +8…13 % crop. The golden default is untouched
    (`dcr=false`, `--enhanced`≡`--dcr`, ctest 7/7). → §5, `SMOOTHING_RND.md` §8e.
 
+2b. **DCR's black borders solved: the crop-budget guard (`--fit-crop`).** At matched 4:3 DCR
+   breaches the 130 % clamp on up to 9.6 % of frames (17.7 % wedges on the violent clip). The
+   guard measures the per-frame crop demand and compresses the deviation toward a fundamental
+   reference at envelope speed — zero borders on all four eval clips in a single verification
+   round, O(n), needs only the pipeline's 1 s look-ahead (in-camera realizable). Honest cost:
+   DCR's violent-clip flatness was border-financed — under the real budget it must follow the
+   violence (dy 1.72 → 6.64; the L1 branch's fit-crop does the same job better, 5.80). On
+   calm-to-moderate clips the guard costs +2…67 % and DCR+guard stays ahead of default.
+   → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`.
+
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
    past the 1.30 clamp). Kept as an available flag, not in the preset. → §5.

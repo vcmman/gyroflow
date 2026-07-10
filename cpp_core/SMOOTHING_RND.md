@@ -655,6 +655,59 @@ arcs, no clipping, no harmonics, bound exact. Also explains §8c′ (L1 has the 
 
 ---
 
+## 8r. Crop-budget guard (`--fit-crop`) — DCR's black borders solved, and what the honest budget reveals
+
+> Section numbering note: §8k–§8q are the bounded-mode / L1 / real-time R&D sections on the
+> side branches (`claude/speed-bump-jolt-rnd`, `claude/deviation-agc`); §8r is their
+> EMA-family landing on this branch.
+
+**The problem.** At matched 4:3, DCR (`--enhanced`) breaches the 130 % zoom clamp on
+9/37/5/190 frames across the four eval clips, with peak demand **2.397** on the violent clip
+(0004) — DCR holds still through impacts, so deviation and crop demand spike; rendered, that is
+a **17.7 % black wedge** (31 sampled frames > 1 % of frame area). §8p (side branch) showed a
+static angle budget can never fix this tightly (per-axis combination + direction-dependent
+angle→zoom slope varies ~3.5×), so the guard works directly in the zoom domain.
+
+**Mechanism** (`smoothing/crop_guard.cpp`, `applyCropBudgetGuard`, post-pass over any
+default_algo output): measure the per-frame required zoom of the smoothed path (lens-free
+callback from `computeAdaptiveFovs`) → demand envelope (centered window-max 0.8 s + zero-phase
+EMA + per-frame peak-hold) → slerp gain toward a fundamental-only reference (zero-phase EMA of
+raw, τ 0.03 s) that brings each frame inside a 3 %-margined max_zoom → verify/re-tighten (up to
+3 rounds; in practice **one round suffices on all four clips**). Envelope-speed gain =
+compressor, not clipper (§8j-5/§8l law); mixing toward the fundamental keeps raw's impact
+harmonics out. O(n), and the centered window needs only the pipeline's existing ~1 s
+look-ahead → **in-camera realizable**, unlike the L1 branch's offline constraint generation.
+
+**Telemetry**: breaches 9/37/5/190 → **0** (single round), maxReqZ 1.39–2.40 → 1.288–1.290,
+deepest gain 0.245 (0004 impact burst = brief bounded follow-through, the DJI behaviour).
+
+**Rendered (matched 4:3; border metric floor set by the borderless default render):**
+
+| clip | DCR plain dy | DCR border | **DCR+guard dy** | guard border | L1 fit-crop dy (ref) |
+|---|---:|---:|---:|---:|---:|
+| run 0001 | 0.461 | ≈ floor | 0.605 (+31 %) | ≈ floor ✅ | 0.495 |
+| run 0002 | 0.834 | 1.72 % | 1.391 (+67 %) | 0.18 % ✅ | 1.097 |
+| 0003 | 0.344 | ≈ floor | 0.350 (+2 %) | ≈ floor ✅ | 0.385 |
+| 0004 | 1.720 | **17.7 % wedges** | **6.639 (3.9×)** | 0.14 % ✅ | 5.798 |
+
+Figure: `figures/dcr_fitcrop_guard.png`. Renders: `*_D_cpp_dcrfit_4x3.mp4`.
+
+**The honest finding — DCR's violent-clip steadiness was border-financed.** DCR's spectacular
+0004 number (1.72 vs everyone else's 4.6–6.6) required 2.4× zoom the budget doesn't allow;
+17.7 % of the frame was simply black. Enforce the budget and DCR must follow the violence like
+every bounded mode (6.64) — and it does so *worse* than L1's constraint generation (5.80),
+because the guard's "collapse toward the fundamental" is a compressor heuristic while L1 plans
+the optimal bounded arc (§8j-5c's sequential-vs-joint argument, measured). On calm-to-moderate
+clips the guard costs little (+2…+67 %) and DCR+guard stays ahead of plain default.
+
+**Mode map after this section (all zero-border at 4:3/130 %):** L1 fit-crop is the *quality*
+choice (best dy on 3 of 4 clips, offline or 1 s-buffer rt pending CG-in-window); **DCR+guard is
+the real-time choice** (O(n), 1 s look-ahead, DCR's mild-clip advantage intact); raising
+max-zoom remains the only way to keep DCR's violent-clip flatness — the budget, not the
+algorithm, is the binding constraint there.
+
+---
+
 ## Bottom line & next steps
 
 - **DCR is a correct rotational-domain improvement** (merged): −45…75% vertical bob, roll bob too,
