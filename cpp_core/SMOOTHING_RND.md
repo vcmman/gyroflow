@@ -700,6 +700,21 @@ because the guard's "collapse toward the fundamental" is a compressor heuristic 
 the optimal bounded arc (§8j-5c's sequential-vs-joint argument, measured). On calm-to-moderate
 clips the guard costs little (+2…+67 %) and DCR+guard stays ahead of plain default.
 
+**Postscript — Gyroflow has a NATIVE version of this mechanism we had not ported.** Rust
+`lib.rs:549`: with the default `max_zoom: Some(130), max_zoom_iterations: 5`, Gyroflow loops:
+compute fovs → frames whose applied fov falls below the max-zoom floor get
+`smoothing_fov_limit_per_frame[f] *= {0.95,0.9,0.85,0.8}` → **re-run the whole smoothing**
+(default_algo multiplies the limit into `fov_ratio`, shrinking `max_velocity`, loosening the
+adaptive α exactly on those frames) → repeat up to 5 rounds. Same concept as our guard
+(per-frame, zoom-domain, re-solve), different actuator: theirs modulates the filter's velocity
+limit (a fast, per-frame α change — §8l predicts waveform distortion) and re-smooths up to 5×;
+ours is a one-round envelope compressor post-pass. Why golden parity never caught the gap: at
+the default 16:9 output_dimension the demand never crosses 1.30 on our eval clips (measured:
+0 breaches, peaks 1.17–1.27) so the Rust loop exits at iteration 0 bit-identically — the GUI's
+"no borders on default" is ① the 16:9 vertical margin doing most of the work, ② this loop as
+the backstop. Porting the native loop for exact parity remains an option (TODO); the guard
+covers the same failure mode with a cleaner waveform and lower cost.
+
 **Mode map after this section (all zero-border at 4:3/130 %):** L1 fit-crop is the *quality*
 choice (best dy on 3 of 4 clips, offline or 1 s-buffer rt pending CG-in-window); **DCR+guard is
 the real-time choice** (O(n), 1 s look-ahead, DCR's mild-clip advantage intact); raising

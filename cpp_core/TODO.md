@@ -125,6 +125,14 @@ ceiling), and a Gaussian base kernel beats EMA+DCR on jerk at equal crop. Candid
 - **Gaussian / linear-phase base kernel** as `--smoothing gaussian` (drops DCR; far lower jerk).
 - **Jerk/transient detection + non-causal variable-window smoothing** (widen the window /
   reduce follow around detected impacts) — most targeted, medium cost.
+- **Native `max_zoom_iterations` loop** (parity gap found in §8r): Rust `lib.rs:549` re-runs
+  the smoothing up to 5× with `smoothing_fov_limit_per_frame` (default_algo scales
+  `max_velocity` by it) wherever the applied fov breaches max_zoom — Gyroflow's own
+  zero-border mechanism, on by default. Never fired on the 16:9 golden data (0 breaches), so
+  the port is golden-correct without it; at 4:3 the GUI would auto-tighten where our default
+  shows borders. Options: port it for exact parity, or keep `--fit-crop` (crop-budget guard,
+  §8r) as the equivalent — cleaner waveform (envelope compressor vs per-frame α modulation),
+  single round, O(n).
 - **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
   constant/linear/parabolic path; absorbs transients without breathing.
 - **Crop-constrained joint smoothing↔zoom** instead of the two-stage smooth-then-zoom.
