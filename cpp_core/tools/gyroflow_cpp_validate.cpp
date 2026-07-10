@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-#include "gyroflow/smoothing/crop_agc.hpp"
+#include "gyroflow/smoothing/crop_guard.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/telemetry_io.hpp"
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;
-    bool fit_crop = false;   // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
+    bool fit_crop = false;   // crop-budget guard post-pass (zero borders inside max_zoom, SS8r)
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -161,15 +161,15 @@ int main(int argc, char** argv) {
         std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
                      "ignored with --zoom-method gaussian\n";
 
-    if (fit_crop) {  // crop-budget AGC post-pass (zero borders inside max_zoom, §8r)
-        CropAGCParams cp;
-        CropAGCReport rep;
-        smoothed = applyCropBudgetAGC(
+    if (fit_crop) {  // crop-budget guard post-pass (zero borders inside max_zoom, §8r)
+        CropGuardParams cp;
+        CropGuardReport rep;
+        smoothed = applyCropBudgetGuard(
             meta.quaternions, smoothed, fps, max_zoom / 100.0,
             gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width, height,
                                              fps, tp, az),
             cp, &rep);
-        std::cerr << "fit-crop AGC: rounds " << rep.outer_iters << ", breach "
+        std::cerr << "fit-crop guard: rounds " << rep.outer_iters << ", breach "
                   << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
                   << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
                   << rep.min_gain << " over " << rep.gained_frames << " frames\n";

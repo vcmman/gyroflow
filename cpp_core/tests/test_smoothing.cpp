@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <vector>
 
-#include "gyroflow/smoothing/crop_agc.hpp"
+#include "gyroflow/smoothing/crop_guard.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/types.hpp"
 
@@ -218,7 +218,7 @@ int main() {
         assert(maxDiff(smoothDefault(bob, bdur, soft0), sOff) < 1e-15);
     }
 
-    // --- crop-budget AGC (fit-crop, §8r): zero breaches under a synthetic linear demand
+    // --- crop-budget guard (fit-crop, §8r): zero breaches under a synthetic linear demand
     //     model; a loose budget is a bit-identical passthrough ---
     {
         const auto bob = makeBob();
@@ -246,9 +246,9 @@ int main() {
         for (double v : d0) mx0 = std::max(mx0, v);
         assert(mx0 > 1.15);
 
-        CropAGCParams cp;
-        CropAGCReport rep;
-        const auto guarded = applyCropBudgetAGC(bob, sm, fps, 1.15, demand, cp, &rep);
+        CropGuardParams cp;
+        CropGuardReport rep;
+        const auto guarded = applyCropBudgetGuard(bob, sm, fps, 1.15, demand, cp, &rep);
         assert(guarded.size() == sm.size());
         assert(allUnit(guarded));
         assert(rep.breach_before > 0);
@@ -257,8 +257,8 @@ int main() {
         assert(rep.min_gain < 1.0 && rep.gained_frames > 0);
 
         // Loose budget: never binds => bit-identical passthrough.
-        CropAGCReport rep2;
-        const auto loose = applyCropBudgetAGC(bob, sm, fps, 1.50, demand, cp, &rep2);
+        CropGuardReport rep2;
+        const auto loose = applyCropBudgetGuard(bob, sm, fps, 1.50, demand, cp, &rep2);
         assert(rep2.breach_before == 0 && rep2.min_gain == 1.0);
         assert(maxDiff(loose, sm) < 1e-15);
     }

@@ -1,6 +1,6 @@
 #pragma once
 
-// Shared glue for the crop-budget AGC (--fit-crop, SMOOTHING_RND §8r) between the validate
+// Shared glue for the crop-budget guard (--fit-crop, SMOOTHING_RND §8r) between the validate
 // and stabilize CLIs: the per-frame required-zoom callback built from the same adaptive-zoom
 // machinery the render uses. Header-only; OpenCV-free.
 
@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "gyroflow/lens_profile.hpp"
-#include "gyroflow/smoothing/crop_agc.hpp"
+#include "gyroflow/smoothing/crop_guard.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/types.hpp"
 #include "gyroflow/zooming/adaptive_zoom.hpp"

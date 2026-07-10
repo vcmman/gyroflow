@@ -7,7 +7,7 @@
 
 namespace gyroflow {
 
-// --- Crop-budget AGC (zero-black-border guard for the EMA family, SMOOTHING_RND §8r) -------
+// --- Crop-budget guard (zero black borders for the EMA family, SMOOTHING_RND §8r) -------
 //
 // Post-pass over any default_algo output (plain EMA, DCR, clamps). Black borders appear
 // wherever the per-frame required zoom (instantaneous inscribed-crop demand) exceeds the
@@ -29,7 +29,14 @@ namespace gyroflow {
 // Mixing toward the fundamental reference — not raw — keeps raw's impact harmonics out of the
 // output while saturated (§8n-2 lesson); ref_tau_s is small so the reference itself stays
 // within budget during violence (§8j-4 lesson).
-struct CropAGCParams {
+//
+// Naming note: the envelope->slow-gain->slerp skeleton is the same compressor pattern as the
+// deviation-AGC *smoothing mode* experiment (§8n, claude/deviation-agc branch), because §8l
+// dictates that shape for any clean-waveform bounding. But this is NOT another AGC smoothing
+// mode: the control variable is crop DEMAND (not angle), the budget is a hard geometric
+// constraint from max_zoom (not an aesthetic knob), and it is a guard applicable on top of
+// any smoother.
+struct CropGuardParams {
     double window_s = 0.8;     // centered window for the demand max-envelope (seconds)
     double env_tau_s = 0.10;   // zero-phase EMA tau smoothing the envelope (seconds)
     double ref_tau_s = 0.03;   // fundamental-reference EMA tau (seconds; small => ref ~ raw)
@@ -37,7 +44,7 @@ struct CropAGCParams {
     int outer_iters = 3;       // demand re-measure / local-tighten rounds
 };
 
-struct CropAGCReport {
+struct CropGuardReport {
     int outer_iters = 0;
     int breach_before = 0, breach_after = 0;   // frames with demand > max_zoom
     double max_reqz_before = 0.0, max_reqz_after = 0.0;
@@ -50,11 +57,11 @@ using CropDemandFn = std::function<std::vector<double>(const std::vector<TimeQua
 
 // Returns the guarded series (same timestamps as `smoothed`; `raw` must be the same series
 // the smoother consumed). No-op (bit-identical copy) wherever the budget never binds.
-std::vector<TimeQuat> applyCropBudgetAGC(const std::vector<TimeQuat>& raw,
+std::vector<TimeQuat> applyCropBudgetGuard(const std::vector<TimeQuat>& raw,
                                          const std::vector<TimeQuat>& smoothed, double fps,
                                          double max_zoom,  // absolute, e.g. 1.30
                                          const CropDemandFn& demand_fn,
-                                         const CropAGCParams& params,
-                                         CropAGCReport* report = nullptr);
+                                         const CropGuardParams& params,
+                                         CropGuardReport* report = nullptr);
 
 } // namespace gyroflow

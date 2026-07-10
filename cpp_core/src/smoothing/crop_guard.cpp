@@ -1,4 +1,4 @@
-#include "gyroflow/smoothing/crop_agc.hpp"
+#include "gyroflow/smoothing/crop_guard.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -42,11 +42,11 @@ void zeroPhaseEma(std::vector<double>& x, double rate_hz, double tau_s) {
 
 } // namespace
 
-std::vector<TimeQuat> applyCropBudgetAGC(const std::vector<TimeQuat>& raw,
+std::vector<TimeQuat> applyCropBudgetGuard(const std::vector<TimeQuat>& raw,
                                          const std::vector<TimeQuat>& smoothed, double fps,
                                          double max_zoom, const CropDemandFn& demand_fn,
-                                         const CropAGCParams& params, CropAGCReport* report) {
-    CropAGCReport rep;
+                                         const CropGuardParams& params, CropGuardReport* report) {
+    CropGuardReport rep;
     std::vector<TimeQuat> out = smoothed;
     const std::size_t n = smoothed.size();
     if (n < 2 || raw.size() != n || fps <= 0.0 || max_zoom <= 1.0) {

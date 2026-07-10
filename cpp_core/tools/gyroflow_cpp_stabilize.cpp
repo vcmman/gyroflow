@@ -22,7 +22,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 
-#include "gyroflow/smoothing/crop_agc.hpp"
+#include "gyroflow/smoothing/crop_guard.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/stabilization/undistort.hpp"
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;   // 0 = offline; >0 = in-camera finite look-ahead (s)
-    bool fit_crop = false;     // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
+    bool fit_crop = false;     // crop-budget guard post-pass (zero borders inside max_zoom, SS8r)
     long max_frames = 0;
     int threads = 0;
 
@@ -298,16 +298,16 @@ int main(int argc, char** argv) {
         if (az.method == ZoomMethod::GaussianFilter && zoom_look_ahead >= 0.0)
             std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
                          "ignored with --zoom-method gaussian\n";
-        if (fit_crop) {  // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
-            CropAGCParams cp;
-            CropAGCReport rep;
+        if (fit_crop) {  // crop-budget guard post-pass (zero borders inside max_zoom, SS8r)
+            CropGuardParams cp;
+            CropGuardReport rep;
             TransformParams ztp = tp;  // demand measured at unit base FOV
-            smoothed = applyCropBudgetAGC(
+            smoothed = applyCropBudgetGuard(
                 meta.quaternions, smoothed, fps, max_zoom / 100.0,
                 gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width,
                                                  height, fps, ztp, az),
                 cp, &rep);
-            std::cout << "fit-crop AGC: rounds " << rep.outer_iters << ", breach "
+            std::cout << "fit-crop guard: rounds " << rep.outer_iters << ", breach "
                       << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
                       << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
                       << rep.min_gain << " over " << rep.gained_frames << " frames\n";
