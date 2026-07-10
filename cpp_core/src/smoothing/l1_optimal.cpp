@@ -233,6 +233,40 @@ std::vector<double> l1ChannelRealtime(const std::vector<double>& ch, double B,
     return out;
 }
 
+// Frame-cadence euler channels of a quat series (ts = f*1000/fps), unwrapped.
+struct FrameChannels {
+    std::vector<double> ts;
+    std::array<std::vector<double>, 3> ch;
+};
+
+bool sampleFrameChannels(const std::vector<TimeQuat>& quats, double fps, FrameChannels& fc) {
+    if (quats.size() < 4 || fps <= 0.0) return false;
+    const double last_ts = quats.back().timestamp_ms;
+    const std::size_t nf = static_cast<std::size_t>(std::floor(last_ts / 1000.0 * fps)) + 1;
+    if (nf < 4) return false;
+    fc.ts.resize(nf);
+    for (auto& c : fc.ch) c.resize(nf);
+    for (std::size_t f = 0; f < nf; ++f) {
+        fc.ts[f] = static_cast<double>(f) * 1000.0 / fps;
+        const Euler e = quatToEuler(sampleQuaternion(quats, fc.ts[f]));
+        fc.ch[0][f] = e.roll;
+        fc.ch[1][f] = e.pitch;
+        fc.ch[2][f] = e.yaw;
+    }
+    for (auto& c : fc.ch) unwrap(c);
+    return true;
+}
+
+std::vector<TimeQuat> recomposeChannels(const std::vector<double>& ts,
+                                        const std::array<std::vector<double>, 3>& out) {
+    std::vector<TimeQuat> result(ts.size());
+    for (std::size_t f = 0; f < ts.size(); ++f) {
+        result[f].timestamp_ms = ts[f];
+        result[f].quat = eulerToQuat(out[0][f], out[1][f], out[2][f]).normalized();
+    }
+    return result;
+}
+
 } // namespace
 
 std::array<double, 3> frameEulerMaxDeviationDeg(const std::vector<TimeQuat>& a,
@@ -261,23 +295,9 @@ std::array<double, 3> frameEulerMaxDeviationDeg(const std::vector<TimeQuat>& a,
 
 std::vector<TimeQuat> smoothL1Optimal(const std::vector<TimeQuat>& quats, double fps,
                                       const L1OptimalParams& params) {
-    if (quats.size() < 4 || fps <= 0.0) return quats;
-    const double last_ts = quats.back().timestamp_ms;
-    const std::size_t nf = static_cast<std::size_t>(std::floor(last_ts / 1000.0 * fps)) + 1;
-    if (nf < 4) return quats;
-
-    // Sample the raw attitude at frame cadence and split into euler channels.
-    std::vector<double> ts(nf);
-    std::array<std::vector<double>, 3> ch;
-    for (auto& c : ch) c.resize(nf);
-    for (std::size_t f = 0; f < nf; ++f) {
-        ts[f] = static_cast<double>(f) * 1000.0 / fps;
-        const Euler e = quatToEuler(sampleQuaternion(quats, ts[f]));
-        ch[0][f] = e.roll;
-        ch[1][f] = e.pitch;
-        ch[2][f] = e.yaw;
-    }
-    for (auto& c : ch) unwrap(c);
+    FrameChannels fc;
+    if (!sampleFrameChannels(quats, fps, fc)) return quats;
+    const std::size_t nf = fc.ts.size();
 
     std::array<std::vector<double>, 3> out;
     if (params.look_ahead_s >= 0.0) {
@@ -286,19 +306,82 @@ std::vector<TimeQuat> smoothL1Optimal(const std::vector<TimeQuat>& quats, double
         const std::size_t F = static_cast<std::size_t>(std::max(0.0, params.look_ahead_s * fps));
         const std::size_t K = static_cast<std::size_t>(std::max(1, params.commit_block));
         for (int k = 0; k < 3; ++k)
-            out[k] = l1ChannelRealtime(ch[k], params.max_deviation_deg[k] / kDeg, params, P, F, K);
+            out[k] = l1ChannelRealtime(fc.ch[k], params.max_deviation_deg[k] / kDeg, params, P, F, K);
     } else {
         const BandChol chol(nf);  // M depends only on nf — factor once, reuse per channel
         for (int k = 0; k < 3; ++k)
-            out[k] = l1Channel(ch[k], params.max_deviation_deg[k] / kDeg, params, chol);
+            out[k] = l1Channel(fc.ch[k], params.max_deviation_deg[k] / kDeg, params, chol);
     }
+    return recomposeChannels(fc.ts, out);
+}
 
-    std::vector<TimeQuat> result(nf);
-    for (std::size_t f = 0; f < nf; ++f) {
-        result[f].timestamp_ms = ts[f];
-        result[f].quat = eulerToQuat(out[0][f], out[1][f], out[2][f]).normalized();
+std::vector<TimeQuat> smoothL1CropConstrained(const std::vector<TimeQuat>& quats, double fps,
+                                              const L1OptimalParams& params, double max_zoom,
+                                              const L1ReqZoomFn& reqzoom_fn,
+                                              L1CropReport* report) {
+    FrameChannels fc;
+    if (!sampleFrameChannels(quats, fps, fc)) return quats;
+    const std::size_t nf = fc.ts.size();
+    const BandChol chol(nf);
+
+    // Per-frame per-axis half-widths (rad), start at the full static budget.
+    std::array<std::vector<double>, 3> b;
+    for (int k = 0; k < 3; ++k) b[k].assign(nf, params.max_deviation_deg[k] / kDeg);
+
+    // Tighten down to a small margin inside the clamp so demand shifted onto neighbouring
+    // frames by the re-solve still lands under max_zoom.
+    const double target = 1.0 + (max_zoom - 1.0) * 0.97;
+    const double kMinBox = 0.02 / kDeg;  // never pin fully to raw (keeps the solver regular)
+    const int kMaxOuter = 8;
+    const std::size_t kHalo = 2;  // frames around a violation (interpolation + RS span)
+
+    L1CropReport rep;
+    std::array<std::vector<double>, 3> out;
+    std::vector<TimeQuat> cand;
+    std::vector<double> blo(nf), bhi(nf);
+    for (int outer = 0;; ++outer) {
+        for (int k = 0; k < 3; ++k) {
+            for (std::size_t i = 0; i < nf; ++i) {
+                blo[i] = fc.ch[k][i] - b[k][i];
+                bhi[i] = fc.ch[k][i] + b[k][i];
+            }
+            out[k] = l1ChannelBounds(fc.ch[k], blo, bhi, params, chol, params.iterations);
+        }
+        cand = recomposeChannels(fc.ts, out);
+        const std::vector<double> rz = reqzoom_fn(cand);
+        const std::size_t nz = std::min(nf, rz.size());
+        int breach = 0;
+        double mx = 0.0;
+        for (std::size_t f = 0; f < nz; ++f) {
+            mx = std::max(mx, rz[f]);
+            if (rz[f] > max_zoom) ++breach;
+        }
+        if (outer == 0) { rep.breach_before = breach; rep.max_reqz_before = mx; }
+        rep.outer_iters = outer + 1;
+        rep.breach_after = breach;
+        rep.max_reqz_after = mx;
+        if (outer >= kMaxOuter) break;
+        // Shrink the boxes of frames above the (margined) target toward the deviation that
+        // would meet it, scaling all three axes by the same factor (demand is ~linear in the
+        // total deviation, §8p).
+        bool any = false;
+        for (std::size_t f = 0; f < nz; ++f) {
+            if (rz[f] <= target) continue;
+            any = true;
+            const double s =
+                std::min(0.95, std::max(0.25, (target - 1.0) / std::max(rz[f] - 1.0, 1e-9)));
+            const std::size_t jlo = f >= kHalo ? f - kHalo : 0;
+            const std::size_t jhi = std::min(nf - 1, f + kHalo);
+            for (int k = 0; k < 3; ++k)
+                for (std::size_t j = jlo; j <= jhi; ++j) {
+                    const double dev = std::abs(out[k][j] - fc.ch[k][j]);
+                    b[k][j] = std::max(kMinBox, std::min(b[k][j], dev * s));
+                }
+        }
+        if (!any) break;
     }
-    return result;
+    if (report) *report = rep;
+    return cand;
 }
 
 } // namespace gyroflow

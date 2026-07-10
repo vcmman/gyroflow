@@ -37,6 +37,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `run0002_dy_traces_all_modes.png` | cached dy (run 0002, 4:3) | dy traces, all seven final modes (default/AGC/DCR/DCR+1s LA/offline L1/rt-L1/DJI): rt-L1 rides on offline L1, DCR+LA1 rides on DCR, AGC ≈ default, DJI carries the cadence; §8o |
 | `run0002_dy_dcr_la1_vs_offline.png` | cached dy (run 0002, 4:3) | focused pair: DCR offline vs DCR+1s look-ahead vs DJI (frames 400–900) — the two DCR traces coincide (≤4 % dy Δ on all 4 clips); §8o |
 | `c0004_dy_traces_all_modes.png` | cached dy (0004, 4:3) | same seven series on the violent clip: DCR/DCR+LA1 stay flat through the impact burst (RMS 1.72 vs DJI 5.95); the bounded modes (L1/rt-L1/AGC) follow the violence inside their budget like DJI; §8o |
+| `l1_fitcrop_dy_vs_borders.png` | rendered dy (4 clips, 4:3) | zero-border L1: `--l1-fit-crop` (E4 constraint generation) vs static box 7.5 (E2) vs box12-with-borders — E4 wins the zero-border class on 3/4 clips and stays under DJI on 0004; §8q |
 | `unified_4x3_dy_accel_jerk.png` | cached dy (4:3) + validate CSVs | FINAL unified matched-4:3: 4 clips × {default, AGC-8, DCR, offline L1, rt-L1} vs DJI — rt-L1 ≡ offline L1; rt-L1 beats AGC on all quality metrics except the box-binding clip; §8m/§8o |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <vector>
 
 #include "gyroflow/types.hpp"
@@ -45,5 +46,32 @@ std::array<double, 3> frameEulerMaxDeviationDeg(const std::vector<TimeQuat>& a,
 // (adaptive zoom, render) samples it the same way it samples the default smoother's output.
 std::vector<TimeQuat> smoothL1Optimal(const std::vector<TimeQuat>& quats, double fps,
                                       const L1OptimalParams& params);
+
+// --- Crop-constrained L1 (SMOOTHING_RND §8p/§8q, "E4") ------------------------------------
+// The static per-axis angle box cannot be tight in the zoom domain (per-axis boxes combine to
+// sqrt(3)x the single-axis deviation; the angle->zoom slope varies ~3.5x with direction/lens
+// position), so a box that survives the worst frame over-constrains all others (§8p). This
+// variant puts the constraint where the black border lives: an outer constraint-generation
+// loop around the same per-channel ADMM. Each round solves with the current per-frame
+// per-axis boxes, asks `reqzoom_fn` for the per-frame required zoom (1/raw_fov, instantaneous
+// inscribed-crop demand BEFORE temporal smoothing/clamp) of the candidate path, and shrinks
+// the boxes of violating frames (+-2-frame halo) toward the deviation that would meet
+// `max_zoom` (with a small margin), leaving all other frames at the full budget. Zero borders
+// by construction at convergence; smoothness is paid only where the budget binds.
+// The callback keeps this module lens-free; build it from computeAdaptiveFovs (see
+// tools/l1_crop_utils.hpp). Offline only (params.look_ahead_s is ignored).
+using L1ReqZoomFn = std::function<std::vector<double>(const std::vector<TimeQuat>&)>;
+
+struct L1CropReport {
+    int outer_iters = 0;                       // solve rounds used (1 = never violated)
+    int breach_before = 0, breach_after = 0;   // frames with required zoom > max_zoom
+    double max_reqz_before = 0.0, max_reqz_after = 0.0;
+};
+
+std::vector<TimeQuat> smoothL1CropConstrained(const std::vector<TimeQuat>& quats, double fps,
+                                              const L1OptimalParams& params,
+                                              double max_zoom,  // absolute, e.g. 1.30
+                                              const L1ReqZoomFn& reqzoom_fn,
+                                              L1CropReport* report = nullptr);
 
 } // namespace gyroflow

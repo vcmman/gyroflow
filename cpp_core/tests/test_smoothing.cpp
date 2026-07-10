@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "gyroflow/smoothing/default_algo.hpp"
+#include "gyroflow/smoothing/l1_optimal.hpp"
 #include "gyroflow/types.hpp"
 
 using namespace gyroflow;
@@ -215,6 +216,51 @@ int main() {
         assert(mxs < 0.9 * mx);  // and it does bind (well below the unclamped deviation)
         DefaultAlgoParams soft0 = off; soft0.deviation_clamp_soft_deg = 0.0;
         assert(maxDiff(smoothDefault(bob, bdur, soft0), sOff) < 1e-15);
+    }
+
+    // --- crop-constrained L1 (fit-crop, §8q): converges to zero breaches under a synthetic
+    //     linear demand model reqZ = 1 + k*total_deviation; a loose box stays untouched ---
+    {
+        const auto bob = makeBob();  // ±0.25 rad ≈ ±14.3° oscillation about Y
+        const double fps = 30.0;
+        // Synthetic demand: the measured §8p relation, reqZ ≈ 1 + k * deviation_deg.
+        const double kSlope = 0.022;
+        const auto reqzoom = [&](const std::vector<TimeQuat>& cand) {
+            std::vector<double> rz(cand.size());
+            for (std::size_t f = 0; f < cand.size(); ++f) {
+                const Quaternion raw = sampleQuaternion(bob, cand[f].timestamp_ms);
+                rz[f] = 1.0 + kSlope * relAngle(raw, cand[f].quat) * 180.0 / PI;
+            }
+            return rz;
+        };
+        L1OptimalParams pr;
+        pr.max_deviation_deg = {12.0, 12.0, 12.0};
+        pr.iterations = 800;  // small series; converges fast
+        const double maxZ = 1.15;  // 12° deviation would demand 1.26 => must tighten
+
+        // Baseline (no fit): the plain box-12 solve does breach the synthetic budget.
+        const auto plain = smoothL1Optimal(bob, fps, pr);
+        const std::vector<double> rzPlain = reqzoom(plain);
+        double mxPlain = 0.0;
+        for (double v : rzPlain) mxPlain = std::max(mxPlain, v);
+        assert(mxPlain > maxZ);
+
+        L1CropReport rep;
+        const auto fit = smoothL1CropConstrained(bob, fps, pr, maxZ, reqzoom, &rep);
+        assert(fit.size() == plain.size());
+        assert(allUnit(fit));
+        assert(rep.breach_before > 0);       // the initial solve violated
+        assert(rep.breach_after == 0);       // constraint generation cleared it
+        assert(rep.max_reqz_after <= maxZ + 1e-9);
+        const std::vector<double> rzFit = reqzoom(fit);
+        for (double v : rzFit) assert(v <= maxZ + 1e-9);
+
+        // A budget the plain solve already satisfies must be a no-op (single outer round,
+        // same path as smoothL1Optimal).
+        L1CropReport rep2;
+        const auto loose = smoothL1CropConstrained(bob, fps, pr, 1.40, reqzoom, &rep2);
+        assert(rep2.outer_iters == 1 && rep2.breach_before == 0);
+        assert(maxDiff(loose, plain) < 1e-12);
     }
 
     std::printf("test_smoothing: OK\n");

@@ -1032,6 +1032,56 @@ its effective deviation budget is bracketed by 7.5°–12° for this lens.
 
 ---
 
+## 8q. Zero-border L1 SOLVED — E3 geometric budgets + E4 per-frame constraint generation
+
+Implemented both zoom-domain fixes from the §8p ladder (branch: `--l1-fit-crop`,
+`--l1-auto-box [scale]` on both CLIs; `smoothL1CropConstrained` in the library, lens-free via a
+required-zoom callback; unit-tested with a synthetic demand model, ctest 7/7, golden md5
+unchanged).
+
+**E3 — geometric per-axis budgets** (`--l1-auto-box`): bisect, per euler axis, the constant
+pure-axis offset whose instantaneous required zoom hits max_zoom (identity base, 8-frame probe
+series — pure lens geometry, no clip data). For this lens at 4:3 / 130 %: **roll 11.7°,
+pitch 16.0°, yaw 32.2°** (single-axis). The equal box 12 was thus *already over the roll budget
+on its own* and wasted ~3× headroom on yaw — the per-axis asymmetry the static box ignores.
+Scale 0.577 (1/√3, combined-use de-rate) is the default; also used as the fit-crop initial box.
+
+**E4 — constraint generation** (`--l1-fit-crop`): outer loop around the per-channel ADMM —
+solve, ask the zoom machinery for per-frame required zoom (instantaneous `raw_fov`), shrink the
+per-frame per-axis boxes of violating frames (±2-frame halo) toward the deviation that meets a
+3 %-margined target, re-solve. Telemetry: **all four clips converge in 3–4 rounds, breaches
+79/100/9/143 → 0**, maxReqZ 1.51–1.62 → 1.25–1.29, cost +1.3–6.9 s per clip.
+
+**Rendered verdict (matched 4:3, image domain — zero borders confirmed on all four clips**,
+bbmax 0.09–0.16 % ≤ the borderless-default floor; 0003 floor-dominated by real dark scenery):
+
+| clip | box12 dy (borders!) | box7.5 dy (E2) | **fit-crop dy (E4)** | E4 vs E2 | DJI |
+|---|---:|---:|---:|---|---:|
+| run 0001 | 0.304 | 0.599 | **0.495** | −17 % | — |
+| run 0002 | 0.700 | 1.963 | **1.097** | **−44 %** | 3.815 |
+| 0003 | 0.274 | 0.360 | 0.385 | +7 % (both ≈ floor) | — |
+| 0004 | 4.901 | 6.606 | **5.798** | −12 % (back under DJI 5.951) | 5.951 |
+
+- **Zero borders is now a solved constraint, not a trade-off knob**: fit-crop beats the best
+  static zero-border box (E2) on 3 of 4 clips — dramatically on run0002 (1.10 vs 1.96, and well
+  under default's 1.61) — and returns 0004 to *better than DJI* (5.80 vs 5.95), which E2 had
+  lost (6.61).
+- **The residual dy cost vs box12 (+18…63 %) is irreducible, not algorithmic**: the breach
+  frames ARE the violent peaks that dominate dy; box12's lower dy was literally purchased with
+  black borders. Fit-crop's number is the best dy *achievable inside the true crop budget*.
+- 0003 is the one nuance: with only 9 breach frames the global re-solve after tightening cost
+  slightly more than the static 7.5° box (0.385 vs 0.360) — both negligible in absolute terms.
+- Figure: `figures/l1_fitcrop_dy_vs_borders.png`. Renders: `*_D_cpp_l1fit_4x3.mp4` +
+  `*_D_cpp_l1box75_4x3.mp4` alongside the other 4:3 renders.
+- **E5 (transient clamp release) is now moot as a primary mechanism** — E4 leaves nothing to
+  guard on these clips — but remains the right belt-and-braces default for RS/numeric residuals
+  on unseen footage.
+- **Realtime**: fit-crop is offline (global CG loop). The rt path composes naturally — run CG
+  per receding-horizon window (the window solver already takes per-sample bounds) — future
+  work, noted in TODO 0c′.
+
+---
+
 ## Bottom line & next steps
 
 - **DCR is a correct rotational-domain improvement** (merged): −45…75% vertical bob, roll bob too,

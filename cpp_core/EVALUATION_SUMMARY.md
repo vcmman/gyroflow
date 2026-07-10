@@ -49,6 +49,15 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    change borders (already 0 by min-tracking) — it removes the causal zoom *pops* (~5–10× smaller
    jumps, offline-level crop). → §4, `SMOOTHING_RND.md` §8c′/§8h.
 
+7. **L1 black borders eliminated by construction (`--l1-fit-crop`).** The bounded L1 modes
+   breached the 130 % clamp on 3–7 % of frames at 4:3 (per-axis angle boxes can't be tight in
+   the zoom domain). Per-frame constraint generation fits the path to the actual crop budget:
+   zero borders on all four clips, beats the best static zero-border box on 3/4 (run0002 1.10
+   vs 1.96 dy), stays under DJI on the violent clip (5.80 vs 5.95). `--l1-auto-box` derives the
+   per-axis budgets from the lens geometry (roll 11.7°/pitch 16.0°/yaw 32.2° — the equal box 12
+   was over-budget on roll and 3× conservative on yaw). → `SMOOTHING_RND.md` §8p/§8q,
+   `figures/l1_fitcrop_dy_vs_borders.png`.
+
 ![DCR vs DJI head-to-head](figures/dji_headtohead_summary.png)
 
 ---
