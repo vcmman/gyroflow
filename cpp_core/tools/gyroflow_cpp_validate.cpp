@@ -22,10 +22,12 @@
 #include <string>
 #include <vector>
 
+#include "gyroflow/smoothing/crop_agc.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/telemetry_io.hpp"
 #include "gyroflow/zooming/adaptive_zoom.hpp"
+#include "crop_fit_utils.hpp"
 
 using namespace gyroflow;
 
@@ -44,6 +46,7 @@ int main(int argc, char** argv) {
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;
+    bool fit_crop = false;   // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -68,6 +71,7 @@ int main(int argc, char** argv) {
         else if (a == "--dcr-power") dcr_power = std::stod(next("--dcr-power"));
         else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
         else if (a == "--enhanced") dcr = true;  // recommended preset (SMOOTHING_RND §8e) = DCR on
+        else if (a == "--fit-crop") fit_crop = true;
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -82,6 +86,7 @@ int main(int argc, char** argv) {
                   << "  Smoothing: [--enhanced] [--dcr [--dcr-window 0.5] [--dcr-power 1.0]]\n"
                   << "             [--per-axis --smoothness-pitch/-yaw/-roll 0..1] [--look-ahead 0]\n"
                   << "  Zoom:      [--zoom-method envelope|gaussian] [--zoom-look-ahead -1]\n"
+                  << "  Borders:   [--fit-crop]  (crop-budget AGC: zero black borders inside max-zoom)\n"
                   << "  Framing:   [--keep-sensor] [--output-size WxH]\n";
         return 2;
     }
@@ -134,7 +139,7 @@ int main(int argc, char** argv) {
     sp.dcr_window_s = dcr_window;
     sp.dcr_power = dcr_power;
     sp.look_ahead_s = look_ahead;
-    const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Adaptive FOVs over [0, frames), at ts = frame*1000/fps (Gyroflow convention).
     TransformParams tp;
@@ -155,6 +160,20 @@ int main(int argc, char** argv) {
     if (az.method == ZoomMethod::GaussianFilter && zoom_look_ahead >= 0.0)
         std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
                      "ignored with --zoom-method gaussian\n";
+
+    if (fit_crop) {  // crop-budget AGC post-pass (zero borders inside max_zoom, §8r)
+        CropAGCParams cp;
+        CropAGCReport rep;
+        smoothed = applyCropBudgetAGC(
+            meta.quaternions, smoothed, fps, max_zoom / 100.0,
+            gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width, height,
+                                             fps, tp, az),
+            cp, &rep);
+        std::cerr << "fit-crop AGC: rounds " << rep.outer_iters << ", breach "
+                  << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
+                  << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
+                  << rep.min_gain << " over " << rep.gained_frames << " frames\n";
+    }
     std::vector<double> raw_fovs;
     const std::vector<double> fovs =
         computeAdaptiveFovs(ts_all, meta.quaternions, smoothed, lens, width, height, fps, tp, az,

@@ -15,6 +15,7 @@ add_library(gyroflow_cpp_core
     src/stabilization.cpp
     src/distortion/opencv_fisheye.cpp
     src/telemetry_io.cpp
+    src/smoothing/crop_agc.cpp
     src/smoothing/default_algo.cpp
     src/stabilization/frame_transform.cpp
     src/stabilization/undistort.cpp

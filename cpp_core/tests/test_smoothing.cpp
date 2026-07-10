@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "gyroflow/smoothing/crop_agc.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/types.hpp"
 
@@ -215,6 +216,51 @@ int main() {
         assert(mxs < 0.9 * mx);  // and it does bind (well below the unclamped deviation)
         DefaultAlgoParams soft0 = off; soft0.deviation_clamp_soft_deg = 0.0;
         assert(maxDiff(smoothDefault(bob, bdur, soft0), sOff) < 1e-15);
+    }
+
+    // --- crop-budget AGC (fit-crop, §8r): zero breaches under a synthetic linear demand
+    //     model; a loose budget is a bit-identical passthrough ---
+    {
+        const auto bob = makeBob();
+        const double bdur = bob.back().timestamp_ms - bob.front().timestamp_ms;
+        const double fps = 30.0;
+        DefaultAlgoParams dp;  // plain scalar EMA
+        const auto sm = smoothDefault(bob, bdur, dp);
+        // Synthetic demand at frame cadence: reqZ = 1 + k*deviation_deg (§8p relation).
+        const double kSlope = 0.022;
+        const auto demand = [&](const std::vector<TimeQuat>& cand) {
+            const std::size_t nf =
+                static_cast<std::size_t>(cand.back().timestamp_ms / 1000.0 * fps) + 1;
+            std::vector<double> rz(nf);
+            for (std::size_t f = 0; f < nf; ++f) {
+                const double ts = static_cast<double>(f) * 1000.0 / fps;
+                const Quaternion raw = sampleQuaternion(bob, ts);
+                const Quaternion c = sampleQuaternion(cand, ts);
+                rz[f] = 1.0 + kSlope * relAngle(raw, c) * 180.0 / PI;
+            }
+            return rz;
+        };
+        // The EMA deviates up to ~14° on this bob => demand up to ~1.31; budget 1.15 binds.
+        const std::vector<double> d0 = demand(sm);
+        double mx0 = 0.0;
+        for (double v : d0) mx0 = std::max(mx0, v);
+        assert(mx0 > 1.15);
+
+        CropAGCParams cp;
+        CropAGCReport rep;
+        const auto guarded = applyCropBudgetAGC(bob, sm, fps, 1.15, demand, cp, &rep);
+        assert(guarded.size() == sm.size());
+        assert(allUnit(guarded));
+        assert(rep.breach_before > 0);
+        assert(rep.breach_after == 0);
+        assert(rep.max_reqz_after <= 1.15 + 1e-9);
+        assert(rep.min_gain < 1.0 && rep.gained_frames > 0);
+
+        // Loose budget: never binds => bit-identical passthrough.
+        CropAGCReport rep2;
+        const auto loose = applyCropBudgetAGC(bob, sm, fps, 1.50, demand, cp, &rep2);
+        assert(rep2.breach_before == 0 && rep2.min_gain == 1.0);
+        assert(maxDiff(loose, sm) < 1e-15);
     }
 
     std::printf("test_smoothing: OK\n");

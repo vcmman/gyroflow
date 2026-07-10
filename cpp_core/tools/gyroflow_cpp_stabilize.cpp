@@ -22,11 +22,13 @@
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 
+#include "gyroflow/smoothing/crop_agc.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/stabilization/undistort.hpp"
 #include "gyroflow/telemetry_io.hpp"
 #include "gyroflow/zooming/adaptive_zoom.hpp"
+#include "crop_fit_utils.hpp"
 
 using namespace gyroflow;
 
@@ -69,6 +71,7 @@ void usage(const char* prog) {
               << "  (direction-consistency gate; keeps smoothing on reciprocating shake)\n"
               << "                 [--look-ahead 0]  (>0 = in-camera finite future buffer, s;"
               << " 0 = offline)\n"
+              << "                 [--fit-crop]  (crop-budget AGC: zero black borders inside max-zoom)\n"
               << "  Framing:       [--keep-sensor] [--output-size WxH]"
               << " (default: lens output_dimension)\n"
               << "  Encoding:      [--codec h264|h265] [--crf 18] [--no-audio]"
@@ -93,6 +96,7 @@ int main(int argc, char** argv) {
     bool dcr = false;
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;   // 0 = offline; >0 = in-camera finite look-ahead (s)
+    bool fit_crop = false;     // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
     long max_frames = 0;
     int threads = 0;
 
@@ -144,6 +148,7 @@ int main(int argc, char** argv) {
         // only helped one clip and forced black borders / more crop. Keeps the golden default
         // (scalar, dcr off) intact; explicit flags after --enhanced still override.
         else if (a == "--enhanced") dcr = true;
+        else if (a == "--fit-crop") fit_crop = true;
         else if (a == "--fov") { fov = std::stod(next("--fov")); adaptive_zoom = false; }
         else if (a == "--max-frames") max_frames = std::stol(next("--max-frames"));
         else if (a == "--threads") threads = std::stoi(next("--threads"));
@@ -248,7 +253,7 @@ int main(int argc, char** argv) {
               << (look_ahead > 0.0 ? (", look-ahead " + std::to_string(look_ahead) + " s (in-camera)")
                                    : std::string(", offline (unlimited look-ahead)"))
               << ")...\n";
-    const std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+    std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Choose the encoder: ffmpeg pipe (H.264/H.265 + audio) when available, else OpenCV.
     const bool ffmpeg_ok = use_ffmpeg && ffmpegAvailable(ffmpeg_bin);
@@ -293,6 +298,20 @@ int main(int argc, char** argv) {
         if (az.method == ZoomMethod::GaussianFilter && zoom_look_ahead >= 0.0)
             std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
                          "ignored with --zoom-method gaussian\n";
+        if (fit_crop) {  // crop-budget AGC post-pass (zero borders inside max_zoom, SS8r)
+            CropAGCParams cp;
+            CropAGCReport rep;
+            TransformParams ztp = tp;  // demand measured at unit base FOV
+            smoothed = applyCropBudgetAGC(
+                meta.quaternions, smoothed, fps, max_zoom / 100.0,
+                gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width,
+                                                 height, fps, ztp, az),
+                cp, &rep);
+            std::cout << "fit-crop AGC: rounds " << rep.outer_iters << ", breach "
+                      << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
+                      << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
+                      << rep.min_gain << " over " << rep.gained_frames << " frames\n";
+        }
         std::cout << "Computing adaptive zoom (window " << az.window_s << " s, max zoom "
                   << max_zoom << "%, method "
                   << (az.method == ZoomMethod::GaussianFilter ? "gaussian" : "envelope")
