@@ -41,6 +41,13 @@
 //    STAGE 3  Clamp by max_zoom: never zoom past a user limit (fov >= 1 / max_zoom). This is the
 //             ONLY place a black border can be forced back in (when a frame needs more zoom than
 //             the limit allows) -- everything else is border-free by construction.
+//    STAGE 4  (optional) CROP-BUDGET GUARD: erase the STAGE-3 borders at their source. A frame
+//             that needs more zoom than the clamp allows is a SMOOTHING-side problem (the
+//             smoothed path deviates too far from the real camera there). The guard measures the
+//             per-frame demand, converts its envelope into a gain g[i] in [0,1], and asks the
+//             smoothing side to blend those frames back toward the camera path. Zero borders
+//             inside the budget, paid only on the frames that overflow it. See the STAGE 4
+//             banner for the theory, Gyroflow's native equivalent, and the porting contract.
 //
 //  ---------------------------------------------------------------------------------------------
 //  WHAT YOU MUST PROVIDE WHEN PORTING  (the one codebase-specific piece)
@@ -389,6 +396,165 @@ inline std::vector<double> computeDynamicZoom(const Params& p, int num_frames,
     return fov;
 }
 
+// ============================================================================================= //
+//  STAGE 4 (optional) : CROP-BUDGET GUARD  --  zero black borders inside max_zoom
+//
+//  WHY. STAGE 3 can only clip the zoom, not the DEMAND: when the smoothed path swings further
+//  from the real camera than the crop budget covers, the clamp caps the zoom and the uncovered
+//  corner is a black wedge. The demand is made by the SMOOTHING, so that is where it must be
+//  fixed -- per frame, and only on the frames that overflow.
+//
+//  Two production actuators for the same idea (per-frame, demand-driven, re-solve):
+//    (a) Gyroflow native ("max_zoom_iterations", ON by default in the app): every breaching
+//        frame gets its per-frame smoothing velocity limit scaled by {0.95, 0.9, 0.85, 0.8} and
+//        the WHOLE smoothing re-runs; up to 5 rounds. Simple, but the per-frame alpha change is
+//        a fast gain (mild waveform distortion) and each round re-smooths everything.
+//    (b) Crop-budget guard (this reference; `--fit-crop` in the cpp_core CLIs): compute a gain
+//          g[i] = (target - d_ref[i]) / (envelope(d)[i] - d_ref[i]),  clamped to [0, 1],
+//        where d[i] = required zoom of the smoothed path (1 / required_fov), d_ref[i] = required
+//        zoom of a REFERENCE path that is always affordable (a barely-smoothed version of the
+//        raw camera path: zero-phase EMA, tau ~0.03 s), and target sits a few % inside max_zoom.
+//        The smoothing side then blends each frame toward that reference: g=1 -> untouched,
+//        g=0 -> ride the reference through the burst (a brief bounded follow-through -- exactly
+//        what an action camera does on impacts). One verification round re-measures and
+//        tightens locally, because demand is only locally linear in the blend.
+//
+//  The gain must vary at ENVELOPE speed, not per sample: a slowly-varying gain is a compressor
+//  (waveform-preserving); a per-sample gain is a clipper (harmonic distortion -- the smoothed
+//  path grows audible-style artefacts, measured in the cpp_core R&D as a doubled cadence peak).
+//  Hence: centered sliding-window max (window_s) -> zero-phase EMA (env_tau_s) -> per-frame
+//  peak-hold, and only then the gain formula.
+//
+//  PORTING CONTRACT. The gain math below is portable as-is. Two pieces touch your codebase:
+//    * measuring demand = STAGE 1 with your MapBorderFn (already required by this file), run
+//      once for the smoothed path and once for the reference path;
+//    * applying the gain = blending orientations (slerp(ref[i], smoothed[i], g[i])), which
+//      lives in your quaternion types -> supplied as a callback (ApplyGainFn), like MapBorderFn.
+// ============================================================================================= //
+
+// Apply per-frame gains to your smoothed path: out[i] = slerp(reference[i], smoothed[i], g[i]).
+// Must update whatever state your MapBorderFn reads, so the next STAGE-1 pass sees the result.
+typedef void (*ApplyGainFn)(const std::vector<double>& gain, void* user);
+
+struct GuardParams {
+    double window_s    = 0.8;   // centered window for the demand max-envelope (seconds)
+    double env_tau_s   = 0.10;  // zero-phase EMA tau smoothing that envelope (seconds)
+    double margin      = 0.97;  // target = 1 + (max_zoom-1)*margin  (headroom for model error)
+    int    outer_iters = 3;     // verify / locally-tighten rounds (1 usually suffices)
+};
+
+struct GuardReport {
+    int    rounds         = 0;
+    int    breach_before  = 0, breach_after = 0;  // frames with demand > max_zoom
+    double max_dem_before = 0.0, max_dem_after = 0.0;
+    double min_gain       = 1.0;
+};
+
+// Centered sliding-window maximum via monotonic deque, O(n).
+inline std::vector<double> windowMaxCentered(const std::vector<double>& x, size_t W) {
+    const size_t n = x.size();
+    std::vector<double> out(n);
+    if (W <= 1) return x;
+    const size_t half = W / 2;
+    std::deque<size_t> dq;
+    size_t r = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t hi = std::min(n - 1, i + half);
+        for (; r <= hi; ++r) {
+            while (!dq.empty() && x[dq.back()] <= x[r]) dq.pop_back();
+            dq.push_back(r);
+        }
+        const size_t lo = i >= half ? i - half : 0;
+        while (!dq.empty() && dq.front() < lo) dq.pop_front();
+        out[i] = x[dq.front()];
+    }
+    return out;
+}
+
+// Zero-phase (forward + backward) EMA.
+inline void zeroPhaseEma(std::vector<double>& x, double rate_hz, double tau_s) {
+    if (x.empty() || tau_s <= 0.0 || rate_hz <= 0.0) return;
+    const double a = 1.0 - std::exp(-(1.0 / rate_hz) / tau_s);
+    double v = x.front();
+    for (size_t i = 0; i < x.size(); ++i) { v += a * (x[i] - v); x[i] = v; }
+    v = x.back();
+    for (size_t i = x.size(); i-- > 0;) { v += a * (x[i] - v); x[i] = v; }
+}
+
+// Demand (1/fov) of a path, via STAGE 1 only (no temporal smoothing, no clamp).
+inline std::vector<double> measureDemand(const Params& p, int num_frames, MapBorderFn map_border,
+                                         void* user) {
+    std::vector<double> req;
+    Params p1 = p;
+    p1.max_zoom_pct = 0.0;                     // disable the clamp; we want raw demand
+    computeDynamicZoom(p1, num_frames, map_border, user, &req);
+    std::vector<double> d(req.size());
+    for (size_t i = 0; i < req.size(); ++i) d[i] = req[i] > 1e-9 ? 1.0 / req[i] : 1e9;
+    return d;
+}
+
+// The guard. map_border must reflect the CURRENT path (i.e. re-reading it after apply_gain
+// sees the blended orientations); map_border_ref maps the reference path and never changes.
+inline GuardReport runCropBudgetGuard(const Params& p, int num_frames, MapBorderFn map_border,
+                                      MapBorderFn map_border_ref, ApplyGainFn apply_gain,
+                                      void* user, const GuardParams& gp) {
+    GuardReport rep;
+    const double max_zoom = p.max_zoom_pct / 100.0;
+    if (max_zoom <= 1.0 || num_frames <= 0) return rep;
+    const double target = 1.0 + (max_zoom - 1.0) * gp.margin;
+
+    const std::vector<double> d0   = measureDemand(p, num_frames, map_border, user);
+    const std::vector<double> dref = measureDemand(p, num_frames, map_border_ref, user);
+    const size_t nf = std::min(d0.size(), dref.size());
+    for (size_t f = 0; f < nf; ++f) {
+        rep.max_dem_before = std::fmax(rep.max_dem_before, d0[f]);
+        if (d0[f] > max_zoom) ++rep.breach_before;
+    }
+    rep.breach_after = rep.breach_before;
+    rep.max_dem_after = rep.max_dem_before;
+    if (rep.breach_before == 0 && rep.max_dem_before <= target) return rep;  // budget never binds
+
+    // Demand envelope -> per-frame gain.
+    std::vector<double> env =
+        windowMaxCentered(d0, std::max<size_t>(1, size_t(gp.window_s * p.fps + 0.5)));
+    zeroPhaseEma(env, p.fps, gp.env_tau_s);
+    std::vector<double> g(nf, 1.0);
+    for (size_t f = 0; f < nf; ++f) {
+        const double dem = std::fmax(env[f], d0[f]);           // peak-hold
+        if (dem <= target) continue;
+        g[f] = dref[f] >= target
+                   ? 0.0
+                   : std::fmin(1.0, std::fmax(0.0, (target - dref[f]) / (dem - dref[f])));
+    }
+
+    // Apply + verify; tighten residual frames locally.
+    for (int round = 0; round < std::max(1, gp.outer_iters); ++round) {
+        apply_gain(g, user);
+        rep.rounds = round + 1;
+        const std::vector<double> d = measureDemand(p, num_frames, map_border, user);
+        rep.breach_after = 0;
+        rep.max_dem_after = 0.0;
+        bool any = false;
+        for (size_t f = 0; f < std::min(nf, d.size()); ++f) {
+            rep.max_dem_after = std::fmax(rep.max_dem_after, d[f]);
+            if (d[f] > max_zoom) ++rep.breach_after;
+            if (d[f] > target) {
+                any = true;
+                const double shrink =
+                    dref[f] >= target
+                        ? 0.0
+                        : std::fmin(1.0, std::fmax(0.0, (target - dref[f]) / (d[f] - dref[f])));
+                const size_t lo = f >= 2 ? f - 2 : 0;
+                const size_t hi = std::min(nf - 1, f + 2);
+                for (size_t j = lo; j <= hi; ++j) g[j] = std::fmin(g[j], g[f] * shrink);
+            }
+        }
+        if (!any) break;
+    }
+    for (size_t f = 0; f < nf; ++f) rep.min_gain = std::fmin(rep.min_gain, g[f]);
+    return rep;
+}
+
 } // namespace dz
 
 // ============================================================================================= //
@@ -404,17 +570,25 @@ namespace {
 struct DemoCtx {
     double width;
     double height;
-    double focal;   // virtual focal length (px)
+    double focal;              // virtual focal length (px)
+    std::vector<double> gain;  // STAGE-4 per-frame blend toward the reference (empty = all 1)
 };
 
 void mapBorderDemo(int frame_index, const std::vector<dz::Point2>& src,
                    std::vector<dz::Point2>& dst, void* user) {
     const DemoCtx* c = static_cast<const DemoCtx*>(user);
-    // toy residual rotation the stabilizer "left in": a slow yaw + a faster pitch bob (radians)
+    // toy residual rotation the stabilizer "left in": a slow yaw + a faster pitch bob (radians),
+    // with a violent burst in frames [60, 90) that overflows the 130% crop budget (STAGE 4 demo).
     const double t = frame_index / 30.0;
-    const double yaw   = 0.05 * std::sin(t * 0.7);
-    const double pitch = 0.03 * std::sin(t * 6.0);
-    const double roll  = 0.01 * std::sin(t * 3.0);
+    const double burst = (frame_index >= 60 && frame_index < 90) ? 5.0 : 1.0;
+    // STAGE 4: blending toward the reference (which has zero residual rotation) scales the
+    // residual angles by g — the small-angle equivalent of slerp(ref, smoothed, g).
+    const double g = (c->gain.empty() || frame_index >= int(c->gain.size()))
+                         ? 1.0
+                         : c->gain[size_t(frame_index)];
+    const double yaw   = g * burst * 0.05 * std::sin(t * 0.7);
+    const double pitch = g * burst * 0.03 * std::sin(t * 6.0);
+    const double roll  = g * burst * 0.01 * std::sin(t * 3.0);
     // small-angle rotation matrix R ~ I + [w]x (good enough for a demo)
     const double r00 = 1.0,      r01 = -roll,  r02 = yaw;
     const double r10 = roll,     r11 = 1.0,    r12 = -pitch;
@@ -430,6 +604,20 @@ void mapBorderDemo(int frame_index, const std::vector<dz::Point2>& src,
         if (W <= 0.0) { dst[j] = {dz::INVALID, dz::INVALID}; continue; }
         dst[j] = {cx + f * (X / W), cy + f * (Y / W)};
     }
+}
+
+// Reference path for STAGE 4: what the camera actually saw (no residual rotation left in), so
+// its demand is ~1 everywhere — always affordable. In a real port this is the barely-smoothed
+// raw path (zero-phase EMA, tau ~0.03 s), not the identity.
+void mapBorderRefDemo(int /*frame_index*/, const std::vector<dz::Point2>& src,
+                      std::vector<dz::Point2>& dst, void* /*user*/) {
+    for (size_t j = 0; j < src.size(); ++j) dst[j] = src[j];
+}
+
+// STAGE 4 gain application: remember the gains; mapBorderDemo reads them on the next pass.
+// In a real port: out[i] = slerp(reference[i], smoothed[i], gain[i]) into the render path.
+void applyGainDemo(const std::vector<double>& gain, void* user) {
+    static_cast<DemoCtx*>(user)->gain = gain;
 }
 
 } // namespace
@@ -459,5 +647,33 @@ int main() {
     fmean /= fov.size();
     std::printf("\napplied fov: min %.4f (max zoom %.3fx), mean %.4f (mean zoom %.3fx)\n",
                 fmin, 1.0 / fmin, fmean, 1.0 / fmean);
+
+    // ---- STAGE 4 demo: crop-budget guard ------------------------------------------------------
+    // The demo shake bursts to 5x amplitude in frames [60, 90), overflowing the 130% budget —
+    // every frame where required_fov < 1/1.3 would render a black wedge. The guard blends those
+    // frames toward the reference just enough to fit the budget.
+    int borders = 0;
+    for (int i = 0; i < N; ++i)
+        if (required[i] < 100.0 / p.max_zoom_pct) ++borders;
+    std::printf("\nSTAGE 4: %d frames overflow the %.0f%% budget (black wedges at STAGE 3)\n",
+                borders, p.max_zoom_pct);
+    dz::GuardParams gp;
+    const dz::GuardReport rep =
+        dz::runCropBudgetGuard(p, N, &mapBorderDemo, &mapBorderRefDemo, &applyGainDemo, &ctx, gp);
+    std::printf("guard: rounds %d, breach %d -> %d, max demand %.3fx -> %.3fx, min gain %.3f\n",
+                rep.rounds, rep.breach_before, rep.breach_after, rep.max_dem_before,
+                rep.max_dem_after, rep.min_gain);
+
+    // Re-run STAGES 1-3 on the guarded path (ctx.gain now holds the blend): every frame fits
+    // the budget, so STAGE 3 no longer forces borders anywhere.
+    std::vector<double> required2;
+    const std::vector<double> fov2 =
+        dz::computeDynamicZoom(p, N, &mapBorderDemo, &ctx, &required2);
+    std::printf("\nframe   required (before -> after guard)   applied_fov   border?\n");
+    for (int i = 45; i < 105; i += 10) {
+        std::printf("%5d       %.4f  ->  %.4f            %.4f      %s -> no\n",
+                    i, required[i], required2[i], fov2[i],
+                    required[i] < 100.0 / p.max_zoom_pct ? "YES" : "no ");
+    }
     return 0;
 }
