@@ -978,8 +978,11 @@ The 1 s-truncation cost is ≤4 % everywhere (roughness identical: 0.228 vs 0.22
 the §7 conclusion holds unchanged at 4:3 and on the violent clip. So the full real-time (1 s
 buffer) lineup is now: **DCR+LA1** (max steadiness, needs `--max-zoom 180`), **rt-L1 box 12°**
 (bounded winner), **AGC** (µs-class fallback). Traces:
-`figures/run0002_dy_traces_all_modes.png` (all seven series; DCR+LA1 rides on DCR offline) and
-`figures/run0002_dy_dcr_la1_vs_offline.png` (focused pair vs DJI). Renders:
+`figures/run0002_dy_traces_all_modes.png` (all seven series; DCR+LA1 rides on DCR offline),
+`figures/run0002_dy_dcr_la1_vs_offline.png` (focused pair vs DJI), and
+`figures/c0004_dy_traces_all_modes.png` (same seven series on the violent clip: the DCR pair
+stays flat through the impact burst, RMS 1.72 vs DJI 5.95, while the bounded modes follow the
+violence inside their budget as DJI does). Renders:
 `{0001,0002}_D_cpp_stabilized_dcr_la1_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_dcr_la1_4x3.mp4`
 (20260708).
 
