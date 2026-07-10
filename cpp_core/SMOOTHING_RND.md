@@ -1108,6 +1108,29 @@ helps, confirming the mechanism. **Lesson: E4 is the guarantee, so the initial b
 generous, not de-rated** — use scale 1.0 (pitch 16° > 12°) and let constraint generation absorb
 the axis-combination overflow (pending experiment, TODO 0c′). Renders: `*_D_cpp_l1auto_4x3.mp4`.
 
+**Scale 1.0 rendered ("l1a10") — the generous-init hypothesis is REFUTED; CG initialization
+has a U-curve.** `--l1-auto-box 1.0 --l1-fit-crop` (pitch 16° > box12) was expected to beat
+the box12 init; it loses badly:
+
+| clip | fit-crop (box12 init) | l1auto (×0.577) | l1a10 (×1.0) |
+|---|---:|---:|---:|
+| run 0001 | **0.495** | 1.049 | 2.036 |
+| run 0002 | **1.097** | 2.647 | 3.514 |
+| 0003 | **0.385** | 0.295 | 0.450 |
+| 0004 | **5.798** | 7.707 | 7.731 |
+
+Mechanism: with a generous box the L1 solution *rides the box* everywhere for smoothness
+(sparse knots at the box edge), so the initial solve breaches on 558–2814 frames; CG can only
+shrink toward feasibility, not re-balance — the tightened per-frame budgets lock in the shape
+of that wandering initial solution, and the cuts land exactly where the path was riding
+(roughness 0.869 vs 0.122 on run 0001). Both ends of the init spectrum lose: too tight
+(box 7.5: over-constrained everywhere, fit-crop is a no-op) and too loose (×1.0: everything
+tightened, kinked). **The sweet spot is an init that leaves few violations — box 12 (3–7 % of
+frames) — and the FINAL RECOMMENDED quality config is therefore
+`--smoothing l1 --l1-deviation 12 --l1-fit-crop`.** `--l1-auto-box` stays as a geometry probe
+(per-axis budget asymmetry, framing adaptation) but is not a good CG initializer at any tested
+scale. Renders: `*_D_cpp_l1a10_4x3.mp4`.
+
 **E-ladder final scoreboard (zero-border at 4:3/130 %):**
 
 | rung | verdict |
