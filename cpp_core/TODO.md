@@ -84,9 +84,12 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   per-axis budgets from max_zoom: roll 11.7°/pitch 16.0°/yaw 32.2° at 4:3-130 %) and E4
   (`--l1-fit-crop`, per-frame constraint generation) are implemented and validated — zero
   black borders on all four clips, beats the best static zero-border box on 3/4, back under
-  DJI on 0004. Remaining: compose fit-crop with the rt receding-horizon path (the window
-  solver already takes per-sample bounds); E5 (transient zoom-clamp release) as a
-  belt-and-braces guard for unseen footage.
+  DJI on 0004. Remaining: (a) re-run the auto-box initializer at scale 1.0 — the x0.577
+  de-rate starves pitch (9.2 deg < box12) and cost 2.1-2.4x dy on the run clips (SS8q
+  "l1auto"); with E4 as the guarantee the initial box should be generous (pitch 16 deg);
+  (b) compose fit-crop with the rt receding-horizon path (the window solver already takes
+  per-sample bounds); (c) E5 (transient zoom-clamp release) as a belt-and-braces guard for
+  unseen footage.
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.

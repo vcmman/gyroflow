@@ -1025,7 +1025,9 @@ binds, the shrink hands back half to all of L1's advantage (run0002 ends up wors
 default; 0004 worse than DJI). A single static box that survives the worst frame of the worst
 clip over-constrains the other 93–99 % of frames. This is exactly the case for **E3/E4**: derive
 the budget from max_zoom geometrically (E3) and tighten only the violating frames via
-constraint generation (E4, expected ≈ box12 dy with zero borders). Renders:
+constraint generation (E4; §8q measures the real outcome — the naive "≈ box12 dy" hope was
+wrong, breach frames are the dy-dominating peaks, but E4 still beats E2 on 3 of 4 clips).
+Renders:
 `{0001,0002}_D_cpp_l1box75_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_l1box75_4x3.mp4`
 (20260708). Side note: DJI's dy (5.95) sits between our box7.5 (6.61) and box12 (4.90) on 0004 —
 its effective deviation budget is bracketed by 7.5°–12° for this lens.
@@ -1079,6 +1081,46 @@ bbmax 0.09–0.16 % ≤ the borderless-default floor; 0003 floor-dominated by re
 - **Realtime**: fit-crop is offline (global CG loop). The rt path composes naturally — run CG
   per receding-horizon window (the window solver already takes per-sample bounds) — future
   work, noted in TODO 0c′.
+
+**E1 quantified (raise max-zoom; reference line only).** box12 + `--max-zoom 170` does give
+zero breaches (peak demand 1.62 < 1.70) — but the 4 s zoom envelope holds every impact's deep
+crop for seconds, so the cost is not "a brief dip": on the violent clips **48–69 % of all
+frames ride above the old 1.30 ceiling** (run0001 48 %, run0002 66 %, 0004 69 %; mean zoom
+1.29→1.36 on 0004, p95 1.46–1.54, transient max 1.62 = 38 % narrower view), plus zoom
+breathing and digital-zoom softening. The calm clip (0003) is nearly free (1.5 %). Verdict
+unchanged: E1 is a reference line, not a mode; zoom-side release survives only as E5's
+transient guard.
+
+**E3-as-initializer, rendered (`--l1-auto-box --l1-fit-crop`, "l1auto", all four clips 4:3):**
+
+| clip | fit-crop (box12 init) dy | l1auto (E3 ×0.577 init) dy | border |
+|---|---:|---:|---|
+| run 0001 | **0.495** | 1.049 (2.1×) | zero ✅ |
+| run 0002 | **1.097** | 2.647 (2.4×) | zero ✅ |
+| 0003 | 0.385 | **0.295** | zero ✅ |
+| 0004 | **5.798** | 7.707 | zero ✅ |
+
+The guarantee holds (all zero-border), but the **1/√3 de-rate hits the wrong axis**: ×0.577
+turns the geometric budgets (roll 11.7 / pitch 16.0 / yaw 32.2°) into roll 6.8 / **pitch 9.2** /
+yaw 18.6° — and the running bob lives on *pitch*, where 9.2° is tighter than the old box12,
+while the opened-up yaw goes unused on run clips. 0003 (pan-flavoured) is the one clip it
+helps, confirming the mechanism. **Lesson: E4 is the guarantee, so the initial box should be
+generous, not de-rated** — use scale 1.0 (pitch 16° > 12°) and let constraint generation absorb
+the axis-combination overflow (pending experiment, TODO 0c′). Renders: `*_D_cpp_l1auto_4x3.mp4`.
+
+**E-ladder final scoreboard (zero-border at 4:3/130 %):**
+
+| rung | verdict |
+|---|---|
+| E1 raise max-zoom | works, costs 48–69 % of frames above the old ceiling — reference line only |
+| E2 static box 7.5° | works, hands back L1's advantage where it binds (+35…180 % dy) — dominated |
+| E3 geometric budgets | right idea, wrong de-rate at ×0.577 (pitch-starved); use ×1.0 as E4's initializer |
+| **E4 `--l1-fit-crop`** | **the answer**: zero borders, best in-budget dy on 3/4 clips, 3–4 rounds, +1.3–6.9 s |
+| E5 transient clamp release | demoted to belt-and-braces guard for unseen footage |
+
+(The EMA-family sibling of E4 — the crop-budget guard `--fit-crop`, its DCR rendered verdict,
+and the discovery of Gyroflow's native `max_zoom_iterations` equivalent — is §8r on
+`claude/new-cpp-impl`.)
 
 ---
 
