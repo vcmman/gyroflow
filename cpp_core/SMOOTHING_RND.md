@@ -734,6 +734,21 @@ follow-through, not an artefact — the golden pipeline shows *more* of it (per-
 modulation vs our envelope compressor, §8l as predicted). Render:
 `0004_D_cpp_defaultfit_4x3.mp4`, `DJI_20260707235321_0004_D_rust_default_4x3.mp4`.
 
+**Final recommended configs (all zero-border at 4:3/130 %; figure
+`figures/c0004_zeroborder_modes_dy.png` overlays them all on the violent clip vs golden vs
+DJI):**
+
+| tier | config | 0004 dy / rough | notes |
+|---|---|---|---|
+| Quality (offline) | `--smoothing l1 --l1-deviation 12 --l1-fit-crop` | 5.80 / 2.71 | best in-budget dy on 3/4 clips (l1 branch) |
+| Realtime | `--dcr --fit-crop` | 6.64 / 3.99 | O(n) + 1 s look-ahead; DCR's mild-clip edge intact |
+| Compatible | `--fit-crop` (default EMA) | 5.77 / 3.46 | = Gyroflow-default equivalent (golden 5.83 / 4.22) |
+
+`--fit-crop` is recommended always-on in every tier: when demand never crosses the budget the
+guard is bit-identical passthrough (measured: 0001/0002/0003 at 4:3 never breach on default,
+so the existing `*_default_4x3.mp4` renders ARE the default+fit-crop videos for those clips;
+only 0004 needed the guard: `0004_D_cpp_defaultfit_4x3.mp4`).
+
 **Mode map after this section (all zero-border at 4:3/130 %):** L1 fit-crop is the *quality*
 choice (best dy on 3 of 4 clips, offline or 1 s-buffer rt pending CG-in-window); **DCR+guard is
 the real-time choice** (O(n), 1 s look-ahead, DCR's mild-clip advantage intact); raising

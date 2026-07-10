@@ -41,8 +41,12 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    on by default) rendered at 4:3 gives dy 5.834 / roughness 4.222 on the violent clip; our
    guard matches the dy (5.768, −1.1 %) with 18 % less roughness — the implementation is
    correct, and the guarded footage's momentary follow-through is inherent (golden shows more).
+   **Final recommended tiers (all zero-border)**: quality =
+   `--smoothing l1 --l1-deviation 12 --l1-fit-crop` (l1 branch); realtime = `--dcr --fit-crop`;
+   compatible = `--fit-crop` alone (= Gyroflow-default equivalent). `--fit-crop` is always-on
+   advice — bit-identical passthrough whenever the budget never binds.
    → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`,
-   `figures/rust_native_vs_fitcrop_guard_0004.png`.
+   `figures/rust_native_vs_fitcrop_guard_0004.png`, `figures/c0004_zeroborder_modes_dy.png`.
 
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
