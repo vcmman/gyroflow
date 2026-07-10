@@ -629,7 +629,7 @@ int main() {
     p.fps = 30.0; p.window_s = 4.0; p.max_zoom_pct = 130.0;
     p.method = dz::Method::EnvelopeFollower;
 
-    DemoCtx ctx{double(p.width), double(p.height), 1800.0};
+    DemoCtx ctx{double(p.width), double(p.height), 1800.0, {}};
     const int N = 150;
 
     std::vector<double> required;
