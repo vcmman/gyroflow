@@ -81,6 +81,7 @@ on that clip); `accel` is computed from the smoothed quaternions (available for 
 | Gaussian σ0.5 | 0.596 · **20** | 0.988 · **24** | 0.325 · **13** | opt-in — best `accel` |
 | L1 (match-default) | **0.356** · 18 | 0.825 · 32 | — · 9 | other branch; lowest `dy` on 0001, +crop |
 | DCR-off + 1 s look-ahead | 0.675 · 49 | 1.372 · — | — · — | ≡ default (look-ahead alone ≠ shake) |
+| DCR + 1 s look-ahead | 0.484 · — | 0.890 · — | — · — | ≡ DCR — real-time realizable (§7); 4:3 Δ ≤ 4 % on all 4 clips (§8o) |
 
 **Two objectives, two winners:** **DCR minimises `dy` (bob amplitude)** — the "is it steady"
 metric — and ships as the default. **Gaussian σ0.5 / L1 minimise `accel` (path smoothness)** but do

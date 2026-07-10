@@ -962,6 +962,27 @@ claims are its trivial O(n) cost and implementation size (~50 lines vs the ADMM 
 for an in-camera product: **rt-L1 is the quality choice; the AGC is the ultra-low-cost fallback**
 for platforms where even 11× realtime (or ~33× parallelized) is too much.
 
+**DCR + 1 s look-ahead at matched 4:3 — completing the real-time lineup.** §7/§8a established
+"DCR fits in a 1 s buffer" on 16:9 run renders only; re-rendered all four clips at matched 4:3
+(`--dcr --look-ahead 1 --keep-sensor`, zoom offline as in the rt-L1 renders) to make the
+real-time-DCR row comparable with everything else in the unified matrix:
+
+| clip | DCR offline dy | DCR + 1 s LA dy | Δ |
+|---|---:|---:|---:|
+| run 0001 | 0.461 | 0.481 | +4.3 % |
+| run 0002 | 0.834 | 0.847 | +1.6 % |
+| 0003 | 0.344 | 0.344 | ±0 % |
+| 0004 | 1.720 | 1.726 | +0.3 % |
+
+The 1 s-truncation cost is ≤4 % everywhere (roughness identical: 0.228 vs 0.227 on run 0002) —
+the §7 conclusion holds unchanged at 4:3 and on the violent clip. So the full real-time (1 s
+buffer) lineup is now: **DCR+LA1** (max steadiness, needs `--max-zoom 180`), **rt-L1 box 12°**
+(bounded winner), **AGC** (µs-class fallback). Traces:
+`figures/run0002_dy_traces_all_modes.png` (all seven series; DCR+LA1 rides on DCR offline) and
+`figures/run0002_dy_dcr_la1_vs_offline.png` (focused pair vs DJI). Renders:
+`{0001,0002}_D_cpp_stabilized_dcr_la1_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_dcr_la1_4x3.mp4`
+(20260708).
+
 ---
 
 ## Bottom line & next steps

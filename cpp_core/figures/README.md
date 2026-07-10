@@ -34,7 +34,8 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `all_bounded_experiments_dy_400_900.png` | cached dy (0004) | frames 400–900 window (calm→violent transition), per-window RMS |
 | `run0002_bounded_experiments_dy.png` | cached dy (run 0002) | replication on run 0002: ladder INVERTS — L1 box12 beats even DCR (0.639 vs 0.767) when the box doesn't bind; §8j-9 |
 | `run0002_bounded_experiments_dy_full.png` | cached dy (run 0002) | same, full 1487 frames |
-| `run0002_dy_traces_all_modes.png` | cached dy (run 0002, 4:3) | dy traces, all six final modes (default/AGC/DCR/offline L1/rt-L1/DJI): rt-L1 rides on offline L1, AGC ≈ default, DJI carries the cadence; §8o |
+| `run0002_dy_traces_all_modes.png` | cached dy (run 0002, 4:3) | dy traces, all seven final modes (default/AGC/DCR/DCR+1s LA/offline L1/rt-L1/DJI): rt-L1 rides on offline L1, DCR+LA1 rides on DCR, AGC ≈ default, DJI carries the cadence; §8o |
+| `run0002_dy_dcr_la1_vs_offline.png` | cached dy (run 0002, 4:3) | focused pair: DCR offline vs DCR+1s look-ahead vs DJI (frames 400–900) — the two DCR traces coincide (≤4 % dy Δ on all 4 clips); §8o |
 | `unified_4x3_dy_accel_jerk.png` | cached dy (4:3) + validate CSVs | FINAL unified matched-4:3: 4 clips × {default, AGC-8, DCR, offline L1, rt-L1} vs DJI — rt-L1 ≡ offline L1; rt-L1 beats AGC on all quality metrics except the box-binding clip; §8m/§8o |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 
@@ -97,6 +98,9 @@ for CLIP in 0001 0002; do
   $BIN $IN --telemetry "$B" --dcr --look-ahead 1 -o "${O}_dcr_la1.mp4" # DCR + 1 s look-ahead
 done
 ```
+
+Append `--keep-sensor` for the matched-4:3 variants (`*_4x3.mp4`) used in every DJI comparison
+(§8m/§8o); the DCR+1s-LA 4:3 set covers all four clips (run 0001/0002 + 20260708 0003/0004).
 
 > **L1** (`_l1.mp4`) is produced on a different branch (`claude/speed-bump-jolt-rnd`,
 > `--smoothing l1 --l1-match-default`); it is not reproducible on this branch. If the `_l1.mp4`
