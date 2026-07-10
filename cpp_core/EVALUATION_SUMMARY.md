@@ -37,7 +37,12 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    DCR's violent-clip flatness was border-financed — under the real budget it must follow the
    violence (dy 1.72 → 6.64; the L1 branch's fit-crop does the same job better, 5.80). On
    calm-to-moderate clips the guard costs +2…67 % and DCR+guard stays ahead of default.
-   → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`.
+   **Validated against golden**: Rust's own zero-border mechanism (`max_zoom_iterations`,
+   on by default) rendered at 4:3 gives dy 5.834 / roughness 4.222 on the violent clip; our
+   guard matches the dy (5.768, −1.1 %) with 18 % less roughness — the implementation is
+   correct, and the guarded footage's momentary follow-through is inherent (golden shows more).
+   → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`,
+   `figures/rust_native_vs_fitcrop_guard_0004.png`.
 
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks

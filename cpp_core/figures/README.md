@@ -30,6 +30,7 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `clamp_harmonic_distortion.png` | PSD + zoom of cached dy | double-peak diagnosis: memoryless saturation pumps 2nd-harmonic (ours 0.27 vs DJI 0.04) — DJI is a compressor, not a clipper; §8j-5 |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 | `dcr_fitcrop_guard.png` | rendered dy (4 clips, 4:3) | crop-budget guard (`--fit-crop`): DCR's borders (17.7 % wedges on 0004) -> zero on all four clips; the honest 130 % budget costs 3.9× dy on the violent clip (DCR's flatness was border-financed); §8r |
+| `rust_native_vs_fitcrop_guard_0004.png` | rendered dy (0004, 4:3) | guard validation vs golden: Rust default (native max_zoom_iterations) vs cpp `default --fit-crop` — dy −1.1 %, roughness −18 %, traces coincide outside the burst; §8r |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).

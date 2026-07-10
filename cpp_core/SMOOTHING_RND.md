@@ -715,6 +715,25 @@ the default 16:9 output_dimension the demand never crosses 1.30 on our eval clip
 the backstop. Porting the native loop for exact parity remains an option (TODO); the guard
 covers the same failure mode with a cleaner waveform and lower cost.
 
+**Validated against golden (same smoother, both zero-border).** Rendered Rust Gyroflow's
+default config at 4:3 (its native `max_zoom_iterations` loop active) and our
+`default --fit-crop` on the breaching clip 0004, and compared on the rendered pixels:
+
+| 0004, 4:3, default EMA | dy RMS | roughness | border |
+|---|---:|---:|---:|
+| cpp default, no guard | 4.609 | 1.650 | 1.94 % wedges |
+| **Rust Gyroflow default (native loop)** | 5.834 | 4.222 | ≈0 ✅ |
+| **cpp default + `--fit-crop`** | **5.768** | **3.462** | ≈0 ✅ |
+
+The guard reproduces the golden zero-border behaviour to **−1.1 % dy** with **18 % less
+roughness** (trace corr 0.825; outside the burst the traces coincide — the guard is
+transparent). Figure: `figures/rust_native_vs_fitcrop_guard_0004.png`. Two conclusions:
+(1) the implementation is correct — same-smoother, same-constraint output matches Gyroflow;
+(2) the "extra momentary jitter" one sees in guarded footage is the mechanism's physical
+follow-through, not an artefact — the golden pipeline shows *more* of it (per-frame α
+modulation vs our envelope compressor, §8l as predicted). Render:
+`0004_D_cpp_defaultfit_4x3.mp4`, `DJI_20260707235321_0004_D_rust_default_4x3.mp4`.
+
 **Mode map after this section (all zero-border at 4:3/130 %):** L1 fit-crop is the *quality*
 choice (best dy on 3 of 4 clips, offline or 1 s-buffer rt pending CG-in-window); **DCR+guard is
 the real-time choice** (O(n), 1 s look-ahead, DCR's mild-clip advantage intact); raising
