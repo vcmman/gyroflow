@@ -807,8 +807,41 @@ for the guard to collapse; ② L1 fit-crop already realizes the lowest bounded-m
 ④ axis-weighted guard exploiting the ~3.5× direction-dependent angle→zoom slope (§8p), with
 roll handed to horizon lock (TODO #2; ~10 % of the energy).
 
-Data/figures/scripts: `dji6_L/results_4x3_0001-0004/` (all 4:3 renders of all tiers + Rust
-golden + DJI refs, hardlinked; `README.txt` maps sources — 0001/0002 refs are RockSteady,
+**Joint dy+dx verdict across the tiers (rendered 4:3, all four clips).** Reading amplitude
+(dy RMS) and twitch (dx roughness) together re-ranks the §8r tiers:
+
+| config | dy RMS 0001/0002/0003/0004 | dx rough 0001/0002/0003/0004 | border |
+|---|---|---|---|
+| default+fit | 0.73 / 1.67 / 0.38 / 5.40 | 0.31 / 0.47 / 0.19 / 1.95 | 0 ✅ |
+| DCR+fit | 0.61 / 1.46 / 0.37 / 6.40 | 0.54 / 0.67 / 0.18 / 2.25 | 0 ✅ |
+| L1 fit-crop | 0.50 / 1.16 / 0.39 / 5.69 | 0.24 / 0.37 / 0.20 / 1.91 | 0 ✅ |
+| **rt-L1 1 s (box 12, no fit-crop)** | **0.31 / 0.75 / 0.30 / 4.98** | **0.18 / 0.32 / 0.17 / 1.79** | 0004 real (max 3.4 %, 3 % frames >1 %); 0001 trace |
+| Rust golden | 0.73 / 1.67 / 0.38 / 5.85 | 0.31 / 0.48 / 0.19 / 1.84 | ≈0 |
+| DJI in-camera | 1.93 / 3.84 / 0.35 / 5.62 | 0.80 / 0.87 / 0.18 / 2.36 | full sensor |
+
+- **DCR+fit loses its net advantage**: its run-clip dy edge over default+fit (−13…17 %, itself
+  shrunk from the 16:9 no-guard era's −31…35 % — part of DCR's compensation was border-financed)
+  is paid back with +43…76 % *horizontal* twitch on exactly those clips (DCR's
+  direction-consistency gate follows the running body sway). default+fit or L1 dominate it.
+- **L1 fit-crop beats DJI on both axes on 3 of 4 clips** (run clips 2–4×; violent: equal
+  amplitude, half the dy roughness, −19 % dx twitch — against RockSteady+). DJI's only
+  remaining edge is −11 % dy amplitude on the calm clip (the §6 periphery residual).
+- **rt-L1 (§8o, 1 s buffer) posts the best numbers of every config on the mild clips** — dy
+  0.31/0.75/0.30, dx roughness lowest across the board, matching §8o's offline-parity claim on
+  rendered pixels, and it beats DJI RockSteady+ on the calm clip too. Two honest caveats:
+  (1) no fit-crop yet → its violent-clip lead (4.98) is partially border-financed (real 3.4 %
+  wedges; the l1-branch TODO "fit-crop in the rt window solver" is the missing piece);
+  (2) surprisingly, offline `--l1-fit-crop` costs ~40–60 % dy vs the plain box-12 solve even on
+  clips that never breach (0.50 vs 0.31 on 0001) — its constraint generation tightens
+  everywhere, not just at breaches; making it breach-conditional would recover the §8o numbers
+  in the zero-border config.
+- Border-metric caveat reconfirmed (§8b): on the night-shot calm clip the edge-connected
+  near-black counter reads ~1.5 % mean / 57–70 % max even for guaranteed-zero-border renders
+  (dark scene content touching the frame edge; DJI's own render reads 0.6 %/12 %) — per-clip
+  floors from a known-clean render remain mandatory before attributing "borders".
+
+Data/figures/scripts: `dji6_L/results_4x3_0001-0004/` (all 4:3 renders of all tiers + rt-L1 +
+Rust golden + DJI refs, hardlinked; `README.txt` maps sources — 0001/0002 refs are RockSteady,
 0003/0004 refs RockSteady+ dual-camera takes) with `analysis/` (path/cropshift/dxy CSVs,
 `results_analysis.py`, `crop_window_shift.py`, `dx_analysis.py`). Repo figures:
 `figures/cropshift_0004_dcrfit.png`, `figures/dx_compare_0004.png`.

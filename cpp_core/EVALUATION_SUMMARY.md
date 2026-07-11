@@ -60,6 +60,18 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    mild clips (0 frames touched on 2 of 4). → `SMOOTHING_RND.md` §8s,
    `figures/cropshift_0004_dcrfit.png`, `figures/dx_compare_0004.png`.
 
+2d. **Joint dy+dx re-ranking (rendered 4:3, all four clips + rt-L1).** Reading amplitude and
+   horizontal twitch together: **DCR+fit loses its net advantage** (run-clip dy −13…17 % vs
+   default+fit, paid back with +43…76 % horizontal twitch); **L1 fit-crop beats DJI on both
+   axes on 3 of 4 clips** (DJI's only edge: −11 % dy on the calm clip — the §6 periphery);
+   **rt-L1 (§8o, 1 s buffer, box 12) posts the best mild-clip numbers of every config
+   measured** (dy 0.31/0.75/0.30, lowest dx roughness everywhere) and beats RockSteady+ on the
+   calm clip — but has no fit-crop yet, so its violent-clip lead is partially border-financed
+   (real 3.4 % max wedges; rt-window fit-crop is the l1-branch TODO). Bonus finding: offline
+   `--l1-fit-crop` tightens constraints even on never-breaching clips (~40–60 % dy cost);
+   breach-conditional generation would recover rt-L1's numbers at zero border.
+   → `SMOOTHING_RND.md` §8s (joint verdict table).
+
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
    past the 1.30 clamp). Kept as an available flag, not in the preset. → §5.
