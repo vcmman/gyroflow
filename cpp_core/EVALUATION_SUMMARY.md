@@ -48,6 +48,18 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`,
    `figures/rust_native_vs_fitcrop_guard_0004.png`, `figures/c0004_zeroborder_modes_dy.png`.
 
+2c. **The guard's "twitch" is mostly HORIZONTAL — quantified per axis.** Comparing the ±guard
+   smoothed paths directly (no video decode): on the violent clip 73.5 % of the motion the
+   guard adds is horizontal (yaw), 17 % vertical, 10 % roll — because DCR's burst deviation is
+   itself yaw-dominated (max 26.4°, unfittable in a 130 % crop). Rendered closure with the new
+   phaseCorrelate `dx`: horizontal *amplitude* is pan-dominated and ≈ config-independent; the
+   twitch lives in dx *roughness* (guard: 3.5× on DCR), yet every zero-border config of ours
+   still twitches less than DJI RockSteady+ on the same scene (1.84–2.25 vs 2.36). Mitigation
+   ranking: per-axis deviation bound upstream > L1 fit-crop (already lowest, 1.91) > slower
+   guard envelope > axis-weighted guard + horizon lock for roll. Guard stays transparent on
+   mild clips (0 frames touched on 2 of 4). → `SMOOTHING_RND.md` §8s,
+   `figures/cropshift_0004_dcrfit.png`, `figures/dx_compare_0004.png`.
+
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
    past the 1.30 clamp). Kept as an available flag, not in the preset. → §5.
@@ -216,7 +228,8 @@ crop-guaranteed hybrid is `--enhanced --deviation-clamp-soft 8..10`. → `SMOOTH
 
 **Independent replication — fresh footage (2026-07-08 shoot).** Two new matched pairs
 (`dji6_L/20260708` 0003/0004, stab-off, our DCR 16:9 render vs `dji6_R/20260708` 0005/0006,
-DJI in-camera 4:3; durations match to <1 s). dy RMS px @640, band split, roughness:
+DJI in-camera **RockSteady+** 4:3 — the earlier run/bike references are plain RockSteady;
+durations match to <1 s). dy RMS px @640, band split, roughness:
 
 | pair | series | dy RMS | <1 Hz | 1–4 Hz | 4–15 Hz | roughness |
 |---|---|---:|---:|---:|---:|---:|

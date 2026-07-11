@@ -755,6 +755,64 @@ the real-time choice** (O(n), 1 s look-ahead, DCR's mild-clip advantage intact);
 max-zoom remains the only way to keep DCR's violent-clip flatness — the budget, not the
 algorithm, is the binding constraint there.
 
+## 8s. Anatomy of the guard's "twitch" — crop-window dx/dy quantified (it's mostly HORIZONTAL)
+
+Follow-up to §8r: guarded footage of the violent clip shows visible twitching. Since the guard
+only edits the smoothed quaternions, the crop window's placement in the source frame is fully
+determined by telemetry — so the *extra* motion the guard adds can be measured exactly, per
+frame and per axis, with no video decode: compare the with/without-guard smoothed paths of the
+same clip (`gyroflow_cpp_validate --keep-sensor [--dcr] [--fit-crop]` CSVs).
+
+**Method** (`crop_window_shift.py`, alongside the data): per frame, project the stabilized
+optical axis `fwd = R·(0,0,1)` and up vector for both paths; δdx/δdy = the arcsin-component
+differences × the §8d calibration (2.36 px/° @640, proxy↔rendered-dy corr 0.999); δroll = the
+signed angle between the up vectors; **added jitter** = the per-frame first difference of the
+displacement (what reads as twitch); zoom pump = the fov ratio. Axis attribution uses the
+rotation vector of `conj(q_noguard)·q_guard` in the IMU frame (X→horizontal, Y→vertical,
+Z→roll; first-order-exact at these few-degree moves).
+
+**Telemetry result (0004 burst, 683 frames, dcr→dcrfit):** crop-window displacement dy RMS/max
+3.20/18.6 px, **dx RMS 7.13 px**, roll RMS 3.24°, added jitter RMS/max 1.13/7.79 px per frame —
+**73.5 % of the guard's motion energy is horizontal** (16.7 % vertical, 9.8 % roll). Root cause
+is upstream: DCR's burst deviation is itself yaw-dominated (RMS 9.6°, max **26.4°** horizontal
+vs 5.9°/18.5° vertical), far beyond what the 130 % budget can absorb (±10–12° at 4:3), and the
+guard's scalar slerp gain collapses each axis in proportion to its deviation. Mild clips
+confirm transparency: default→defaultfit touches **0 frames** on 0001/0003, 19 frames at
+sub-pixel level (max 0.18 px) on 0002. `cropshift_summary.csv` has all pairs.
+
+**Rendered closure** (`translation_flow` in `gyro_analysis/video_metrics.py` now returns
+(dx, dy); dx_analysis over the full render set, 0004, same smoother ± guard):
+
+| 0004, 4:3 | dx RMS | dx rough | dy RMS | dy rough |
+|---|---:|---:|---:|---:|
+| default, no guard (1.9 % border) | 6.58 | 1.32 | 4.64 | 1.65 |
+| default + `--fit-crop` | 6.70 | **1.95 (+47 %)** | 5.40 | 2.29 |
+| DCR, no guard (17.7 % wedges) | 6.64 | **0.64** | 1.77 | 0.74 |
+| DCR + `--fit-crop` | 7.00 | **2.25 (3.5×)** | 6.40 | 3.06 |
+
+Two readings: (1) **dx RMS barely moves** — horizontal displacement is dominated by the
+intentional heading/pan every config must follow, and the guard's follow-through is correlated
+with raw so it adds no quadrature amplitude; the twitch lives entirely in **dx roughness**
+(frame-to-frame Δdx), which the guard multiplies 3.5× on DCR, time-aligned with the burst.
+(2) Ranking at zero border: Rust golden 1.84 ≈ **L1 fit 1.91** ≈ default+fit 1.95 < DCR+fit
+2.25 < **DJI RockSteady+ 2.36** — every zero-border config of ours twitches horizontally *less*
+than DJI's in-camera result on the same scene.
+
+**Can it be removed?** Amplitude: no — 26° of yaw deviation does not fit a 130 % crop; the
+horizontal follow-through is geometric (only raising max_zoom removes it). Jerk (the actual
+complaint): yes, in order of value — ① bound the deviation per axis *upstream* (soft clamp on
+yaw, §8j-4 mechanics: same amplitude, −37 % roughness measured) so the deviation never piles up
+for the guard to collapse; ② L1 fit-crop already realizes the lowest bounded-mode twitch
+(1.91 vs 2.25); ③ slow the guard's gain envelope (attack/release) within the 3 % margin;
+④ axis-weighted guard exploiting the ~3.5× direction-dependent angle→zoom slope (§8p), with
+roll handed to horizon lock (TODO #2; ~10 % of the energy).
+
+Data/figures/scripts: `dji6_L/results_4x3_0001-0004/` (all 4:3 renders of all tiers + Rust
+golden + DJI refs, hardlinked; `README.txt` maps sources — 0001/0002 refs are RockSteady,
+0003/0004 refs RockSteady+ dual-camera takes) with `analysis/` (path/cropshift/dxy CSVs,
+`results_analysis.py`, `crop_window_shift.py`, `dx_analysis.py`). Repo figures:
+`figures/cropshift_0004_dcrfit.png`, `figures/dx_compare_0004.png`.
+
 ---
 
 ## Bottom line & next steps

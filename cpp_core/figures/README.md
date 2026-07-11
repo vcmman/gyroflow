@@ -32,6 +32,8 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `dcr_fitcrop_guard.png` | rendered dy (4 clips, 4:3) | crop-budget guard (`--fit-crop`): DCR's borders (17.7 % wedges on 0004) -> zero on all four clips; the honest 130 % budget costs 3.9× dy on the violent clip (DCR's flatness was border-financed); §8r |
 | `rust_native_vs_fitcrop_guard_0004.png` | rendered dy (0004, 4:3) | guard validation vs golden: Rust default (native max_zoom_iterations) vs cpp `default --fit-crop` — dy −1.1 %, roughness −18 %, traces coincide outside the burst; §8r |
 | `c0004_zeroborder_modes_dy.png` | rendered dy (0004, 4:3) | all zero-border modes overlaid on the violent clip — default+fit / DCR+fit / L1 fit-crop / Rust golden / DJI in-camera: all follow the burst inside the budget; the recommendation-tier figure; §8r |
+| `cropshift_0004_dcrfit.png` | validate CSVs (±guard) | telemetry-domain crop-window motion the guard ADDS (0004, dcr→dcrfit): shift dx/dy px, per-frame added jitter, zoom pump — 73.5 % of the energy is horizontal (yaw-dominated deviation); §8s |
+| `dx_compare_0004.png` | rendered dx+dy (0004, 4:3) | horizontal closure: phaseCorrelate dx traces per config — dx RMS ≈ constant (intentional pan), the twitch is dx *roughness* (guard 3.5× on DCR; all our zero-border configs < DJI RockSteady+); §8s |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).

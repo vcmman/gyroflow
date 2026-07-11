@@ -8,13 +8,13 @@ import cv2
 import numpy as np
 
 
-def vertical_flow(path, width=640, max_frames=None):
-    """Per-frame global vertical shift dy (px) between consecutive frames.
+def translation_flow(path, width=640, max_frames=None):
+    """Per-frame global (dx, dy) shift (px) between consecutive frames.
 
     Estimates the single global sub-pixel translation with cv2.phaseCorrelate (a
-    Hanning window suppresses FFT edge effects) and keeps the vertical component.
-    Frames are resized to `width` px wide first, so dy is in pixels at that scale.
-    Returns a 1-D np.ndarray of length (n_frames - 1).
+    Hanning window suppresses FFT edge effects). Frames are resized to `width` px
+    wide first, so dx/dy are in pixels at that scale.
+    Returns a (n_frames - 1, 2) np.ndarray with columns [dx, dy].
     """
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
@@ -30,15 +30,15 @@ def vertical_flow(path, width=640, max_frames=None):
         return np.float32(cv2.cvtColor(cv2.resize(f, size), cv2.COLOR_BGR2GRAY))
 
     prev_g = prep(prev)
-    dys = []
+    dxys = []
     i = 0
     while True:
         ok, cur = cap.read()
         if not ok:
             break
         cur_g = prep(cur)
-        (_dx, dy), _resp = cv2.phaseCorrelate(prev_g, cur_g, win)
-        dys.append(dy)
+        (dx, dy), _resp = cv2.phaseCorrelate(prev_g, cur_g, win)
+        dxys.append((dx, dy))
         prev_g = cur_g
         i += 1
         if i % 200 == 0:
@@ -46,7 +46,12 @@ def vertical_flow(path, width=640, max_frames=None):
         if max_frames and i >= max_frames:
             break
     cap.release()
-    return np.asarray(dys)
+    return np.asarray(dxys)
+
+
+def vertical_flow(path, width=640, max_frames=None):
+    """Per-frame global vertical shift dy (px); see translation_flow."""
+    return translation_flow(path, width, max_frames)[:, 1]
 
 
 def edge_black_series(path, width=480, thresh=8, stride=5, max_frames=None):

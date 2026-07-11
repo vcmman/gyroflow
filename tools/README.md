@@ -54,4 +54,4 @@ Metric definitions + reproduce commands: [`../cpp_core/figures/README.md`](../cp
 | `gyroflow_export.py` | drive a Gyroflow binary, load its exported camera-data CSV / quaternions |
 | `gcsv.py` | read GCSV gyro logs |
 | `plotting.py` | shared quaternion angle/velocity plots + CSV writers |
-| `video_metrics.py` | image-domain video metrics: `vertical_flow` (phaseCorrelate `dy`) and `edge_black_series` (border-connected black area) — shared by the §3 scripts |
+| `video_metrics.py` | image-domain video metrics: `translation_flow` (phaseCorrelate `(dx, dy)`; `vertical_flow` = its dy column) and `edge_black_series` (border-connected black area) — shared by the §3 scripts |
