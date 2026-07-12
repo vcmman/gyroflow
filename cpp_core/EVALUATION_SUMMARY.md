@@ -66,11 +66,13 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    axes on 3 of 4 clips** (DJI's only edge: −11 % dy on the calm clip — the §6 periphery);
    **rt-L1 (§8o, 1 s buffer, box 12) posts the best mild-clip numbers of every config
    measured** (dy 0.31/0.75/0.30, lowest dx roughness everywhere) and beats RockSteady+ on the
-   calm clip — but has no fit-crop yet, so its violent-clip lead is partially border-financed
-   (real 3.4 % max wedges; rt-window fit-crop is the l1-branch TODO). Bonus finding: offline
-   `--l1-fit-crop` tightens constraints even on never-breaching clips (~40–60 % dy cost);
-   breach-conditional generation would recover rt-L1's numbers at zero border.
-   → `SMOOTHING_RND.md` §8s (joint verdict table).
+   calm clip. Its violent-clip border gap is **closed by §8t (l1 branch)**: fit-crop now runs
+   inside the rt window (`--smoothing l1 --l1-deviation 12 --l1-look-ahead 1 --l1-fit-crop`),
+   rendering 0004 at the l1fit border floor with dy 6.14 / dx rough 1.41 — dominating
+   DCR+guard on every metric at zero border; **new Realtime tier**. Mild clips need no
+   tightening (rt path maxReqZ 1.21–1.29 — its wins were never border-financed; the offline
+   solver's 79-frame breach on 0001 is a global box-riding artifact the rt window avoids).
+   → `SMOOTHING_RND.md` §8s; l1 branch §8t.
 
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks

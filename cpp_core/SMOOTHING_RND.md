@@ -828,13 +828,17 @@ roll handed to horizon lock (TODO #2; ~10 % of the energy).
   remaining edge is −11 % dy amplitude on the calm clip (the §6 periphery residual).
 - **rt-L1 (§8o, 1 s buffer) posts the best numbers of every config on the mild clips** — dy
   0.31/0.75/0.30, dx roughness lowest across the board, matching §8o's offline-parity claim on
-  rendered pixels, and it beats DJI RockSteady+ on the calm clip too. Two honest caveats:
-  (1) no fit-crop yet → its violent-clip lead (4.98) is partially border-financed (real 3.4 %
-  wedges; the l1-branch TODO "fit-crop in the rt window solver" is the missing piece);
-  (2) surprisingly, offline `--l1-fit-crop` costs ~40–60 % dy vs the plain box-12 solve even on
-  clips that never breach (0.50 vs 0.31 on 0001) — its constraint generation tightens
-  everywhere, not just at breaches; making it breach-conditional would recover the §8o numbers
-  in the zero-border config.
+  rendered pixels, and it beats DJI RockSteady+ on the calm clip too. Its one gap — real 3.4 %
+  border wedges on the violent clip (no fit-crop in the rt path) — is **CLOSED by §8t on the
+  l1 branch**: E4's constraint generation now runs inside the §8o window
+  (`--l1-look-ahead 1 --l1-fit-crop`), rendering 0004 at the l1fit border floor (max 0.17 %,
+  none > 1 %) with dy 6.14 / dy rough 2.29 / **dx rough 1.41** — dominating DCR+guard on every
+  metric at zero border; it takes the Realtime tier. §8t also *corrects* a presumption made
+  here: the rt path needs **no tightening at all on 0001/0002/0003** (maxReqZ 1.21–1.29) — the
+  offline global solve's 79-frame breach on 0001 comes from planning long box-riding arcs the
+  receding-horizon solve never accumulates, so rt-L1's mild-clip wins were legitimate, not
+  border-financed, and the "l1-fit-crop tightens everywhere" reading below applies to the
+  offline solver only.
 - Border-metric caveat reconfirmed (§8b): on the night-shot calm clip the edge-connected
   near-black counter reads ~1.5 % mean / 57–70 % max even for guaranteed-zero-border renders
   (dark scene content touching the frame edge; DJI's own render reads 0.6 %/12 %) — per-clip
