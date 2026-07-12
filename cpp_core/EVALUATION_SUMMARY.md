@@ -42,7 +42,7 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    guard matches the dy (5.768, −1.1 %) with 18 % less roughness — the implementation is
    correct, and the guarded footage's momentary follow-through is inherent (golden shows more).
    **Final recommended tiers (all zero-border)**: quality =
-   `--smoothing l1 --l1-deviation 12 --l1-fit-crop` (l1 branch); realtime = `--dcr --fit-crop`;
+   `--smoothing l1 --l1-deviation 12 --l1-fit-crop`; realtime = `--dcr --fit-crop`;
    compatible = `--fit-crop` alone (= Gyroflow-default equivalent). `--fit-crop` is always-on
    advice — bit-identical passthrough whenever the budget never binds.
    → `SMOOTHING_RND.md` §8r, `figures/dcr_fitcrop_guard.png`,
@@ -66,13 +66,13 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    axes on 3 of 4 clips** (DJI's only edge: −11 % dy on the calm clip — the §6 periphery);
    **rt-L1 (§8o, 1 s buffer, box 12) posts the best mild-clip numbers of every config
    measured** (dy 0.31/0.75/0.30, lowest dx roughness everywhere) and beats RockSteady+ on the
-   calm clip. Its violent-clip border gap is **closed by §8t (l1 branch)**: fit-crop now runs
+   calm clip. Its violent-clip border gap is **closed by §8t**: fit-crop now runs
    inside the rt window (`--smoothing l1 --l1-deviation 12 --l1-look-ahead 1 --l1-fit-crop`),
    rendering 0004 at the l1fit border floor with dy 6.14 / dx rough 1.41 — dominating
    DCR+guard on every metric at zero border; **new Realtime tier**. Mild clips need no
    tightening (rt path maxReqZ 1.21–1.29 — its wins were never border-financed; the offline
    solver's 79-frame breach on 0001 is a global box-riding artifact the rt window avoids).
-   → `SMOOTHING_RND.md` §8s; l1 branch §8t.
+   → `SMOOTHING_RND.md` §8s/§8t.
 
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
@@ -85,8 +85,8 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
 
 5. **Gaussian / L1 kernels: opt-in, not DCR replacements.** They minimise angular *acceleration*
    (smoothest path — Gaussian σ0.5 beats DCR everywhere on accel) but never match DCR on `dy`
-   (amplitude). Two objectives, two winners. → §3; kernels live on `claude/gaussian-smoothing` /
-   `claude/speed-bump-jolt-rnd`.
+   (amplitude). Two objectives, two winners. → §3; L1 is merged (`--smoothing l1`), the Gaussian
+   kernel lives on `claude/gaussian-smoothing`.
 
 6. **Dynamic zoom: borders solved; look-ahead fixes pops.** Black borders come only from the
    `max_zoom` clamp; dynamic zoom beats static for *every* smoothing config (~0 % vs 2–8 %
@@ -145,8 +145,8 @@ metric — and ships as the default. **Gaussian σ0.5 / L1 minimise `accel` (pat
 not match DCR on `dy` → they trade amplitude for smoothness (kept opt-in, §8g). On **bike** (smooth
 footage) every config ties on `dy` (~0.31–0.33); only `accel` separates them. Once DCR is off,
 1 s look-ahead does not change `dy` (bob rejection is the short time-constant, not the far future).
-Sources: `SMOOTHING_RND.md` §8a (dy), §8f/§8g (accel), §8e (Tier-1 matrix); Gaussian/L1 from
-branches `claude/gaussian-smoothing` / `claude/speed-bump-jolt-rnd`.
+Sources: `SMOOTHING_RND.md` §8a (dy), §8f/§8g (accel), §8e (Tier-1 matrix); Gaussian from
+`claude/gaussian-smoothing`, L1 merged (`--smoothing l1`).
 
 **Baseline — DJI in-camera (RockSteady).** DJI's own stabilized clip is the external reference. Two
 caveats make it a *separate* comparison rather than a row above: (1) DJI outputs **4:3** while our
@@ -299,9 +299,9 @@ Our residual again concentrates <1 Hz (the §3 translational parallax); DJI's st
    Passing → new `--enhanced`.
 2. **Frame-periphery residual** — the only place DJI leads (§6). Investigate per-row rolling-shutter
    and fisheye-distortion accuracy at the sensor edges (band analysis localizes it to bottom/edge).
-3. **Branch consolidation** — merge `claude/gaussian-smoothing` (verified low-risk); **rebase**
-   `claude/speed-bump-jolt-rnd` (real CLI conflicts + missing infra; unify its API to
-   `(quats, duration_ms, params)` on the way).
+3. **Branch consolidation** — merge `claude/gaussian-smoothing` (verified low-risk).
+   `claude/speed-bump-jolt-rnd` is merged (2026-07-12); remaining from its review: unify L1's
+   API to `(quats, duration_ms, params)` + shared euler helpers + convergence-test iterations.
 4. **Translation-domain stabilization** (`SMOOTHING_RND.md` §3) — the visible "running float" is
    translational parallax no rotational smoother can remove; the largest remaining headroom,
    a separate larger effort (start with a design doc).

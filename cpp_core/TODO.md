@@ -1,15 +1,17 @@
 # cpp_core — status & next steps (resume here)
 
 Headless C++ port of Gyroflow's stabilization core. Self-contained CMake project; math
-validated against Rust Gyroflow's golden metadata. Last updated 2026-07-08.
+validated against Rust Gyroflow's golden metadata. Last updated 2026-07-12.
 
 ## Current status (one line)
 
 Phase 1 (headless DJI stabilizer) + Phase 2 (dynamic zoom + `output_dimension` framing) are
-**complete and golden-validated**, including **both** adaptive-zoom methods. End-to-end on
-real DJI footage (Osmo Action 4 sample + Osmo Action 6 dji6 6.6-min clip); on par with
-Gyroflow to a sub-pixel margin. Input decode is still 8-bit (OpenCV) and telemetry is still
-bridged from the Rust binary — those are the two biggest remaining gaps.
+**complete and golden-validated**, including **both** adaptive-zoom methods, plus the merged
+**L1 smoothing family** (offline + 1 s-buffer rt, both zero-border fit-crop modes, §8q/§8t)
+and the EMA **crop-budget guard** (`--fit-crop`, §8r). End-to-end on real DJI footage (Osmo
+Action 4 sample + Osmo Action 6 dji6 6.6-min clip); on par with Gyroflow to a sub-pixel
+margin. Input decode is still 8-bit (OpenCV) and telemetry is still bridged from the Rust
+binary — those are the two biggest remaining gaps.
 
 ---
 
@@ -39,6 +41,15 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   vertical shake, black border unchanged). `--enhanced` ≡ `--dcr`; golden default untouched.
 - **Finite look-ahead** (`--look-ahead S`, §7): in-camera-realizable smoothing — backward pass
   limited to S seconds of buffered future (0 = offline/golden).
+- **L1-optimal smoothing family** (`smoothing/l1_optimal.*`, merged 2026-07-12): Grundmann-2011
+  jerk-minimal path per euler channel (ADMM, dependency-free) with per-axis crop box —
+  `--smoothing l1 [--l1-deviation D]`; **rt receding-horizon** (`--l1-look-ahead 1`, §8o,
+  offline quality at ≥5× realtime); **zero-border fit-crop** in both modes (`--l1-fit-crop`,
+  offline §8q / rt in-window §8t). Quality tier `--l1-deviation 12 --l1-fit-crop`; realtime
+  tier adds `--l1-look-ahead 1` — beats DCR+guard on every rendered metric at zero border.
+- **Crop-budget guard** (`smoothing/crop_guard.*`, `--fit-crop`, §8r): EMA-family zero-border
+  post-pass (envelope compressor toward the fundamental); validated against Rust's native
+  `max_zoom_iterations` loop (dy −1.1 %, roughness −18 % on the breaching clip).
 - **Zoom FOV look-ahead** (`--zoom-look-ahead S`, §8h): real-time dynamic-zoom envelope with S
   seconds of future; fixes causal zoom pops (~5–10× smaller jumps), borders already 0 (<0 =
   offline/golden).
@@ -70,11 +81,11 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   EVALUATION_SUMMARY §3/§6). Investigate per-row rolling-shutter interpolation and fisheye-model
   accuracy at high image radii; band analysis already localizes it.
 - **0c. Branch consolidation**: merge `claude/gaussian-smoothing` (verified low-risk — only 2
-  Markdown conflicts, CLI/CMake auto-merge). ~~Rebase `claude/speed-bump-jolt-rnd`~~ — **done
-  (2026-07-09)**: this branch is now rebased onto the full cpp-impl stack (`--smoothing l1`
-  coexists with DCR/`--enhanced`/clamps/`raw_fov`; golden intact, ctest 7/7). Still open from the
-  rebase review: unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
-  default_algo's euler↔quat helpers, replace fixed 2000 ADMM iterations with a convergence test.
+  Markdown conflicts, CLI/CMake auto-merge). ~~`claude/speed-bump-jolt-rnd`~~ — **MERGED
+  (2026-07-12)**: the L1 family (§8j-6…§8t incl. rt fit-crop) is now on this branch; golden
+  intact, ctest 7/7. Still open from the merge review: unify L1's API to
+  `(quats, duration_ms, params)` + same-timestamp output, share default_algo's euler↔quat
+  helpers, replace fixed 2000 ADMM iterations with a convergence test.
 - **0c′. Self-tuning crop-budget L1** (§8j-7/8): derive the per-axis box B from `max_zoom`
   automatically (box 12° ≈ the 130 % clamp boundary on 0004) → a parameter-free "max quality
   within the crop budget" bounded mode that beats DJI (dy −12 %, roughness −30 %, clean waveform).
@@ -89,10 +100,24 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   config is `--smoothing l1 --l1-deviation 12 --l1-fit-crop`). **(a) DONE by §8t:** fit-crop
   now composes with the rt receding-horizon path (`--l1-look-ahead S --l1-fit-crop`,
   in-window constraint generation; zero breaches on 0004, rt path needs no tightening at all
-  on 0001, ~2× plain rt-L1 cost). Remaining: (b) E5 (transient zoom-clamp release) as a
-  belt-and-braces guard for unseen footage; (c) optional: probe an auto-box scale that lands
+  on 0001, ~2× plain rt-L1 cost). Remaining: (c) optional: probe an auto-box scale that lands
   near box12 coverage (~0.75, pitch 12 deg) if lens/framing portability of the initializer is
   ever needed.
+- **0e. Deployment hardening — unconditional zero-border (layered defense)**: black borders
+  have exactly one birth point — the `max_zoom` clamp floor overriding a demand the smoothed
+  path exceeds. Production stack, in order: **(1)** fit-crop constraint layer (landed: EMA
+  `--fit-crop` §8r, L1 offline §8q, L1 rt §8t) — pays smoothness only where the budget binds;
+  **(2)** the 3 % verification margin — plus the §8t tuning: trigger tightening only on a TRUE
+  breach (`rz > max_zoom`), keep `target` as the tightening goal — recovers 0002's +80 % dy
+  false cost, applies to §8q/§8r/§8t alike; **(3) E5 per-frame airbag** (transient clamp
+  release): when a frame still demands > max_zoom (model slack, unseen lens/footage), let the
+  applied zoom follow the demand transiently (cap ~150 %) instead of clamping — trades a
+  momentary extra crop for a geometric no-border guarantee; almost never fires; one condition
+  + one cap param, works for both families; **(4)** optional render-time closed loop: the
+  warp kernel detects out-of-bounds samples per frame and bumps that frame's zoom (with small
+  temporal smoothing) — pixel-level guarantee with no model gap, cheap enough to keep always-on.
+  Layers 3+4 are what make "zero border" unconditional on unseen footage; layers 1+2 are why
+  the quality stays (§8t: rt-L1+fit beats DCR+guard on every metric at zero border).
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.

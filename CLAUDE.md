@@ -89,7 +89,9 @@ The core library and unit tests have no external deps (JSON vendored in `third_p
 `gyroflow_cpp_stabilize` CLI is built only when OpenCV is found.
 
 Implemented (Phase 1 headless DJI stabilizer + Phase 2 dynamic zoom + Gyroflow
-`output_dimension` framing): `distortion/` (OpenCV fisheye), `smoothing/default_algo`,
+`output_dimension` framing): `distortion/` (OpenCV fisheye), `smoothing/default_algo`
+(+ DCR `--enhanced`, deviation clamps, `--fit-crop` crop-budget guard) and `smoothing/l1_optimal`
+(`--smoothing l1`, offline + rt receding-horizon, zero-border `--l1-fit-crop`),
 `stabilization/{frame_transform,undistort}` (incl. per-row rolling-shutter), `mat3.hpp`,
 `zooming/adaptive_zoom` (**both** temporal methods — EnvelopeFollower default + GaussianFilter,
 `--zoom-method`), `telemetry_io` (JSON bridge), and `tools/gyroflow_cpp_stabilize.cpp`. Input
