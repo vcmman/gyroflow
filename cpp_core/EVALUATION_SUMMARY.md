@@ -74,6 +74,19 @@ resized to 640 px wide (square pixels → aspect-independent). Defined in
    solver's 79-frame breach on 0001 is a global box-riding artifact the rt window avoids).
    → `SMOOTHING_RND.md` §8s/§8t.
 
+2e. **At 16:9 (product default) the tier ranking becomes content-dependent.** The 12.5 %
+   vertical crop margin makes pitch deviation nearly free: defaultfit and rtl1fit become pure
+   passthrough on all four clips (0004 peak demand 1.18/1.25 vs the 1.30 budget), while DCR
+   still breaches everywhere (0004 peak 1.80 — its yaw-dominated deviation exceeds any margin;
+   the guard remains its load-bearing part). Mild clips: rt-L1 fit still sweeps (dy 0.26–0.83,
+   lowest dx twitch). Violent clip **flips twice**: DCR+fit takes the amplitude crown (3.94 vs
+   its 4:3 worst-place 6.40 — its flatness is finally budget-affordable) and rt-L1 drops to
+   last (4.70 — the static 12° box forces following regardless of margin; the concrete case
+   for the self-tuning box, TODO 0c′), while default+fit has ~2× the lowest horizontal twitch
+   (1.23) as a passthrough. Guidance: 4:3 → rt-L1; 16:9 → rt-L1 for mild, DCR+fit (amplitude)
+   or default+fit (twitch) for violent; fit layers always-on (free when the budget doesn't
+   bind). → `SMOOTHING_RND.md` §8u, `figures/dy_dx_summary_16x9.png`.
+
 3. **Per-axis smoothing was evaluated and excluded.** It helps one clip only, gives no gain on the
    harder run clip, and stacking it with DCR forces 8.6–8.8 % black border (required zoom stacks
    past the 1.30 clamp). Kept as an available flag, not in the preset. → §5.

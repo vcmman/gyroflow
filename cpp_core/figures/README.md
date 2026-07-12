@@ -45,6 +45,8 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `c0004_zeroborder_modes_dy.png` | rendered dy (0004, 4:3) | all zero-border modes overlaid on the violent clip — default+fit / DCR+fit / L1 fit-crop / Rust golden / DJI in-camera: all follow the burst inside the budget; the recommendation-tier figure; §8r |
 | `cropshift_0004_dcrfit.png` | validate CSVs (±guard) | telemetry-domain crop-window motion the guard ADDS (0004, dcr→dcrfit): shift dx/dy px, per-frame added jitter, zoom pump — 73.5 % of the energy is horizontal (yaw-dominated deviation); §8s |
 | `dx_compare_0004.png` | rendered dx+dy (0004, 4:3) | horizontal closure: phaseCorrelate dx traces per config — dx RMS ≈ constant (intentional pan), the twitch is dx *roughness* (guard 3.5× on DCR; all our zero-border configs < DJI RockSteady+); §8s |
+| `dy_dx_summary_16x9.png` | rendered dx+dy (4 clips, 4:3 vs 16:9) | the vertical-margin dividend: three fit tiers at both aspects — mild clips improve across the board, the violent clip re-ranks (DCR+fit takes amplitude, rt-L1's static box loses its lead, default+fit lowest twitch); §8u |
+| `compare_16x9_0004.png` | rendered dx+dy (0004, 16:9) | violent-clip traces at 16:9: defaultfit/rtl1fit are fit-passthrough, dcrfit is guard-trimmed (breach 59→0, peak 1.80) — all zero-border; §8u |
 
 The first two scripts read **rendered videos**; the third reads **validate CSVs** (no video,
 much faster).

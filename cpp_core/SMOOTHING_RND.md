@@ -1415,6 +1415,61 @@ rt fit converges to zero breaches; loose budget reproduces plain rt-L1 bit-ident
 class quality, 1 s latency. The offline `--l1-fit-crop` (no look-ahead) remains the pure
 quality tier (§8q).
 
+## 8u. The same three tiers at 16:9 — the vertical-margin dividend, and the 0004 ranking flips
+
+Everything above evaluated at matched 4:3 (full sensor — the hard mode, zero margin on both
+axes). The product-default framing is the lens `output_dimension` **16:9** (3840×2160 out of
+the 3840×2880 sensor): at zoom 1.0 the crop has **360 px (12.5 %) of vertical margin** top and
+bottom, so pitch deviation — the bob/impact axis — is largely free; yaw and roll get nothing.
+Full 12-render matrix (defaultfit / dcrfit / rtl1fit × 4 clips, merged-branch binary,
+`results_16x9_0001-0004/`, `metrics_16x9.csv`).
+
+**Fit-layer activity — the margin dividend is real, except for DCR:**
+
+| config | fit action at 16:9 (vs 4:3) |
+|---|---|
+| defaultfit | **pure passthrough on ALL FOUR** — 0004 peak demand 1.18 (was 1.49, 53 breaches) |
+| rtl1fit | **zero tightening on ALL FOUR** (peaks 1.16–1.26; was breach 1 + tightening on 0004) |
+| dcrfit | still fires on all four: breach 6/4/5/**59**, 0004 peak **1.80**, 308 frames tightened |
+
+DCR is the exception because its burst deviation is yaw-dominated (§8s) and its pitch
+deviation exceeds even the 12.5 % margin — the guard remains DCR's load-bearing component at
+any aspect. Borders: all three tiers land at the false-positive floor on every clip (0004 max
+0.18–0.28 %, none > 1 %); the night-shot calm clip reads ~61–65 % max for *all* configs
+including provably-borderless ones — §8b's dark-scene caveat, reconfirmed at 16:9.
+
+**Rendered metrics (dy RMS/rough | dx rough, px @640):**
+
+| clip | defaultfit | dcrfit | rtl1fit |
+|---|---|---|---|
+| 0001 run | 0.68/0.16 \| 0.31 | 0.56/0.21 \| 0.61 | **0.30/0.11 \| 0.18** |
+| 0002 run | 1.37/0.38 \| 0.43 | 0.93/0.26 \| 0.46 | **0.83/0.23 \| 0.37** |
+| 0003 calm | 0.34/0.10 \| 0.19 | 0.33/0.10 \| 0.19 | **0.26/0.10 \| 0.17** |
+| 0004 violent | 4.08/2.27 \| **1.23** | **3.94**/2.37 \| 2.25 | 4.70/2.29 \| 2.50 |
+
+- **Mild clips: rt-L1 fit stays the sweep winner** (best dy AND best dx twitch on all three),
+  same ranking as 4:3, better absolute numbers everywhere.
+- **The violent clip flips, twice.** (1) **DCR+fit takes the amplitude crown** (3.94; it was
+  the *worst* at 4:3 with 6.40): the margin absorbs the pitch part of DCR's hold-still
+  deviation, so its flatness is finally budget-affordable — the guard only trims the yaw
+  excess. (2) **rt-L1 loses its lead** (4.70, worst of three): its static 12° box forces it to
+  follow the violence regardless of how much margin the frame gained — the mirror image of
+  §8p ("a static angle box cannot be tight in the zoom domain"): here the budget loosened and
+  the box didn't. This is the concrete motivation for 0c′'s self-tuning box (derive B from
+  max_zoom + framing); at 16:9 a wider pitch box would let rt-L1 hold still like DCR does.
+- **default+fit posts the lowest violent-clip horizontal twitch by ~2×** (dx rough 1.23) while
+  being pure passthrough — at 16:9 the Compatible tier is a very strong default.
+
+**Tier guidance by aspect:** at 4:3/full-sensor the ranking is rt-L1 > default+fit > DCR+fit
+(§8t); at 16:9 it becomes content-dependent — rt-L1 for mild/handheld, DCR+fit (amplitude) or
+default+fit (twitch) for violent content. `--fit-crop`/`--l1-fit-crop` stay always-on in every
+case: at 16:9 they are free (passthrough) except exactly where DCR needs them.
+
+Figures: `figures/dy_dx_summary_16x9.png` (4:3 vs 16:9 bars, both metrics),
+`figures/compare_16x9_0004.png` (violent-clip dx/dy traces). Data/renders/scripts:
+`dji6_L/results_16x9_0001-0004/` (12 hardlinked renders, `README.txt`, `analyze_16x9.py`,
+`plot_16x9.py`, `metrics_16x9.csv`).
+
 ---
 
 ## Bottom line & next steps
