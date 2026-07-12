@@ -1145,6 +1145,73 @@ scale. Renders: `*_D_cpp_l1a10_4x3.mp4`.
 and the discovery of Gyroflow's native `max_zoom_iterations` equivalent — is §8r on
 `claude/new-cpp-impl`.)
 
+## 8t. rt-L1 aligned with fit-crop — zero-border L1 in real time (E4 inside the §8o window)
+
+§8s on `claude/new-cpp-impl` measured the rendered rt-L1 (§8o, box 12, 1 s buffer) posting the
+best mild-clip numbers of every config — but with **real borders on the violent clip** (max
+3.4 %, 3 % of frames > 1 % area): the static angle box cannot be tight in the zoom domain
+(§8p), and L1 rides its box by construction, so whatever the box over-grants, L1 spends.
+This section composes E4's constraint generation with the §8o receding-horizon window —
+TODO item (a), now landed.
+
+**Mechanism** (`l1CropConstrainedRealtime`, dispatched by `smoothL1CropConstrained` when
+`params.look_ahead_s >= 0`; CLI: `--l1-look-ahead S --l1-fit-crop`): per window
+[2 s pinned past | commit K=15 | S future], run up to 4 inner rounds — solve the 3 channels,
+recompose the window candidate, ask `reqzoom_fn` for its per-frame required zoom (the callback
+now evaluates at the candidate's own timestamps, so window slices just work), shrink the boxes
+of breaching *uncommitted* frames (±2-frame halo) exactly as §8q, re-solve — then commit K.
+Tightened boxes persist across window slides (no oscillation); a non-breaching window costs
+exactly one extra O(W) reqzoom evaluation. Same 1 s buffer as everything else in the rt
+pipeline. Report: `outer` = max rounds any window needed; `breach_after` from one final
+full-series evaluation of the committed path (honest, not per-window).
+
+**Telemetry (validate, 4:3, box 12, 1 s buffer):**
+
+| clip | breach pre→post | maxReqZ pre→post | note |
+|---|---|---|---|
+| 0001 | **0 → 0** | 1.274 (untouched) | **rt path needs no tightening at all** |
+| 0002 | 0 → 0 | 1.292 → 1.287 | margin-touch only (target 1.291) |
+| 0003 | 0 → 0 | 1.207 (untouched) | passthrough |
+| 0004 | 1 → **0** | 1.304 → **1.284** | fov floor 0.7786 > clamp 0.7692 → zero forced border |
+
+The 0001 row corrects a §8s presumption: rt-L1's mild-clip advantage is **not**
+border-financed — the *offline global* box-12 solve breaches 79 frames on 0001 (maxReqZ 1.58,
+§8q log) because it plans long box-riding arcs, but the receding-horizon solve, re-anchored
+every K frames, never accumulates that deviation (maxReqZ 1.274). Only the violent clip needed
+work, and only 1 pre-tightening breach appears through the window (vs 1.319 global §8o) for
+the same reason.
+
+**Rendered (0004, matched 4:3, vs the §8s zero-border field):**
+
+| config | dy RMS | dy rough | dx rough | border max / >1 % frames |
+|---|---:|---:|---:|---|
+| rt-L1 plain (border-financed) | 4.98 | 3.36 | 1.79 | 3.45 % / 3.0 % ✗ |
+| **rt-L1 + fit-crop (§8t)** | **6.14** | **2.29** | **1.41** | **0.17 % / 0 ✅** (= l1fit floor) |
+| offline L1 fit-crop (§8q) | 5.69 | 2.19 | 1.91 | 0.23 % / 0 ✅ |
+| DCR + guard (§8r realtime tier) | 6.40 | 3.06 | 2.25 | ≈0 ✅ |
+| Rust golden (native loop) | 5.85 | 4.22 | 1.84 | ≈0 ✅ |
+| DJI RockSteady+ | 5.62 | 4.25 | 2.36 | full sensor |
+
+**rt-L1+fit dominates DCR+guard on every metric at zero border** (dy −4 %, dy roughness
+−25 %, dx twitch −37 %) while using the same 1 s buffer — it takes the **Realtime tier**.
+Against its own offline sibling it trades +8 % dy amplitude for the lowest horizontal twitch
+of any zero-border config measured (1.41; the §8s complaint metric). Honest cost vs the
+border-financed plain rt-L1: +23 % dy — that is what the violent clip's zero-border guarantee
+actually costs in real time. Mild clips are untouched (0001/0003 bit-identical to plain rt-L1,
+0002 margin-graze), so §8s's mild-clip wins carry over unchanged at zero border.
+
+**Cost**: validate end-to-end on the 66 s clip 7.6 s → 13.5 s (+once-per-window reqzoom +
+re-solves where tightening fires; ≈2× plain rt-L1, still ≥5× realtime single-threaded at
+rt_iterations 4000; §8o's 800 halves it again). Unit test: synthetic linear-demand model —
+rt fit converges to zero breaches; loose budget reproduces plain rt-L1 bit-identically
+(ctest 7/7). Render: `dji6_L/20260708/0004_D_cpp_rtl1fit_4x3.mp4` (+ hardlink in
+`results_4x3_0001-0004/`), log `0004_rtl1fit.log`.
+
+**Recommended config update**: quality-realtime =
+`--smoothing l1 --l1-deviation 12 --l1-look-ahead 1 --l1-fit-crop` — zero borders, offline-L1
+class quality, 1 s latency. The offline `--l1-fit-crop` (no look-ahead) remains the pure
+quality tier (§8q).
+
 ---
 
 ## Bottom line & next steps

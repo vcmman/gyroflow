@@ -210,16 +210,15 @@ int main(int argc, char** argv) {
                       << l1.max_deviation_deg[0] << ", " << l1.max_deviation_deg[1] << ", "
                       << l1.max_deviation_deg[2] << "\n";
         }
-        if (l1_fit_crop) {  // E4: constraint generation against the actual crop demand
-            if (l1.look_ahead_s >= 0.0)
-                std::cerr << "Warning: --l1-fit-crop is offline-only; ignoring --l1-look-ahead\n";
+        if (l1_fit_crop) {  // E4/§8t: constraint generation against the actual crop demand
             L1CropReport rep;
             smoothed = smoothL1CropConstrained(
                 meta.quaternions, fps, l1, max_zoom / 100.0,
-                gyroflow_tools::makeReqZoomFn(ts_all, &meta.quaternions, &lens, width, height,
+                gyroflow_tools::makeReqZoomFn(&meta.quaternions, &lens, width, height,
                                               fps, tp, az),
                 &rep);
-            std::cerr << "L1 fit-crop: outer " << rep.outer_iters << ", breach "
+            std::cerr << "L1 fit-crop" << (l1.look_ahead_s >= 0.0 ? " (rt window)" : "")
+                      << ": outer " << rep.outer_iters << ", breach "
                       << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
                       << rep.max_reqz_before << " -> " << rep.max_reqz_after << "\n";
         } else {

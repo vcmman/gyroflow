@@ -261,6 +261,27 @@ int main() {
         const auto loose = smoothL1CropConstrained(bob, fps, pr, 1.40, reqzoom, &rep2);
         assert(rep2.outer_iters == 1 && rep2.breach_before == 0);
         assert(maxDiff(loose, plain) < 1e-12);
+
+        // --- REAL-TIME crop-constrained L1 (§8t): the same guarantees through the
+        //     receding-horizon window (1 s buffer) with in-window tightening ---
+        L1OptimalParams rt = pr;
+        rt.look_ahead_s = 1.0;
+        rt.rt_iterations = 800;
+        L1CropReport rrep;
+        const auto rfit = smoothL1CropConstrained(bob, fps, rt, maxZ, reqzoom, &rrep);
+        assert(rfit.size() == plain.size());
+        assert(allUnit(rfit));
+        assert(rrep.breach_before > 0);      // plain rt windows violated the synthetic budget
+        assert(rrep.breach_after == 0);      // in-window tightening cleared every frame
+        assert(rrep.max_reqz_after <= maxZ + 1e-9);
+        const std::vector<double> rzRt = reqzoom(rfit);
+        for (double v : rzRt) assert(v <= maxZ + 1e-9);
+
+        // Loose budget: rt fit-crop must reproduce plain rt-L1 (windows never tighten).
+        L1CropReport rrep2;
+        const auto rloose = smoothL1CropConstrained(bob, fps, rt, 1.40, reqzoom, &rrep2);
+        assert(rrep2.outer_iters == 1 && rrep2.breach_before == 0);
+        assert(maxDiff(rloose, smoothL1Optimal(bob, fps, rt)) < 1e-12);
     }
 
     std::printf("test_smoothing: OK\n");

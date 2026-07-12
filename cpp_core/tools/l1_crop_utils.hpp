@@ -20,16 +20,18 @@ namespace gyroflow_tools {
 
 // Per-frame required zoom (1/raw_fov, instantaneous inscribed-crop demand before temporal
 // smoothing / max-zoom clamp) of a candidate smoothed series, under the tool's exact lens /
-// framing / RS setup. `raw` and `lens` are captured by pointer and must outlive the callback.
-inline gyroflow::L1ReqZoomFn makeReqZoomFn(std::vector<double> ts_all,
-                                           const std::vector<gyroflow::TimeQuat>* raw,
+// framing / RS setup. Evaluates at the candidate's OWN timestamps, so the rt mode (§8t) can
+// pass window slices. `raw` and `lens` are captured by pointer and must outlive the callback.
+inline gyroflow::L1ReqZoomFn makeReqZoomFn(const std::vector<gyroflow::TimeQuat>* raw,
                                            const gyroflow::LensProfile* lens, int width,
                                            int height, double fps, gyroflow::TransformParams tp,
                                            gyroflow::AdaptiveZoomParams az) {
     tp.fov = 1.0;  // demand is measured at unit base FOV (validate convention)
     return [=](const std::vector<gyroflow::TimeQuat>& cand) {
+        std::vector<double> ts(cand.size());
+        for (std::size_t i = 0; i < cand.size(); ++i) ts[i] = cand[i].timestamp_ms;
         std::vector<double> rf;
-        gyroflow::computeAdaptiveFovs(ts_all, *raw, cand, *lens, width, height, fps, tp, az, &rf);
+        gyroflow::computeAdaptiveFovs(ts, *raw, cand, *lens, width, height, fps, tp, az, &rf);
         std::vector<double> rz(rf.size());
         for (std::size_t i = 0; i < rf.size(); ++i)
             rz[i] = rf[i] > 1e-9 ? 1.0 / rf[i] : 1e9;

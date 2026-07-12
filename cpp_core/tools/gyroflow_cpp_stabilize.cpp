@@ -309,18 +309,15 @@ int main(int argc, char** argv) {
         std::cout << "  L1-optimal: crop box (deg) " << l1.max_deviation_deg[0] << ", "
                   << l1.max_deviation_deg[1] << ", " << l1.max_deviation_deg[2]
                   << ", iters " << l1.iterations << "\n";
-        if (l1_fit_crop) {  // E4: constraint generation against the actual crop demand
-            if (l1.look_ahead_s >= 0.0)
-                std::cerr << "Warning: --l1-fit-crop is offline-only; ignoring --l1-look-ahead\n";
-            std::vector<double> zts(static_cast<std::size_t>(std::max(total, 0L)));
-            for (long j = 0; j < total; ++j) zts[j] = static_cast<double>(j) * 1000.0 / fps;
+        if (l1_fit_crop) {  // E4/§8t: constraint generation against the actual crop demand
             L1CropReport rep;
             smoothed = smoothL1CropConstrained(
                 meta.quaternions, fps, l1, max_zoom / 100.0,
-                gyroflow_tools::makeReqZoomFn(zts, &meta.quaternions, &lens, width, height, fps,
+                gyroflow_tools::makeReqZoomFn(&meta.quaternions, &lens, width, height, fps,
                                               ztp, zaz),
                 &rep);
-            std::cout << "  L1 fit-crop: outer " << rep.outer_iters << ", breach "
+            std::cout << "  L1 fit-crop" << (l1.look_ahead_s >= 0.0 ? " (rt window)" : "")
+                      << ": outer " << rep.outer_iters << ", breach "
                       << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
                       << rep.max_reqz_before << " -> " << rep.max_reqz_after << "\n";
         } else {

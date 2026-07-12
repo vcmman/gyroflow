@@ -59,12 +59,19 @@ std::vector<TimeQuat> smoothL1Optimal(const std::vector<TimeQuat>& quats, double
 // `max_zoom` (with a small margin), leaving all other frames at the full budget. Zero borders
 // by construction at convergence; smoothness is paid only where the budget binds.
 // The callback keeps this module lens-free; build it from computeAdaptiveFovs (see
-// tools/l1_crop_utils.hpp). Offline only (params.look_ahead_s is ignored).
+// tools/l1_crop_utils.hpp); it MUST evaluate at the candidate's own timestamps.
+// With params.look_ahead_s >= 0 this runs REAL-TIME (§8t): the §8o receding-horizon window
+// solve with the same constraint generation run inside each window (on window slices of the
+// candidate) before its frames are committed — same look-ahead buffer as plain rt-L1, zero
+// borders by the same mechanism.
 using L1ReqZoomFn = std::function<std::vector<double>(const std::vector<TimeQuat>&)>;
 
 struct L1CropReport {
-    int outer_iters = 0;                       // solve rounds used (1 = never violated)
-    int breach_before = 0, breach_after = 0;   // frames with required zoom > max_zoom
+    // offline: solve rounds used (1 = never violated); rt: max rounds any window needed.
+    int outer_iters = 0;
+    // offline: first/last-round counts; rt: pre-tightening count over each window's committed
+    // frames / final full-series count on the committed path.
+    int breach_before = 0, breach_after = 0;
     double max_reqz_before = 0.0, max_reqz_after = 0.0;
 };
 

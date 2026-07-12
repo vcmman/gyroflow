@@ -86,11 +86,13 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   black borders on all four clips, beats the best static zero-border box on 3/4, back under
   DJI on 0004. Scale 1.0 was tested and REFUTED (SS8q "l1a10": CG init has a U-curve; the
   sweet spot is an init with few violations — box 12 — and the final recommended quality
-  config is `--smoothing l1 --l1-deviation 12 --l1-fit-crop`). Remaining: (a) compose
-  fit-crop with the rt receding-horizon path (the window solver already takes per-sample
-  bounds); (b) E5 (transient zoom-clamp release) as a belt-and-braces guard for unseen
-  footage; (c) optional: probe an auto-box scale that lands near box12 coverage (~0.75,
-  pitch 12 deg) if lens/framing portability of the initializer is ever needed.
+  config is `--smoothing l1 --l1-deviation 12 --l1-fit-crop`). **(a) DONE by §8t:** fit-crop
+  now composes with the rt receding-horizon path (`--l1-look-ahead S --l1-fit-crop`,
+  in-window constraint generation; zero breaches on 0004, rt path needs no tightening at all
+  on 0001, ~2× plain rt-L1 cost). Remaining: (b) E5 (transient zoom-clamp release) as a
+  belt-and-braces guard for unseen footage; (c) optional: probe an auto-box scale that lands
+  near box12 coverage (~0.75, pitch 12 deg) if lens/framing portability of the initializer is
+  ever needed.
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.

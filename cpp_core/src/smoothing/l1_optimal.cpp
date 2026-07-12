@@ -267,6 +267,112 @@ std::vector<TimeQuat> recomposeChannels(const std::vector<double>& ts,
     return result;
 }
 
+// Real-time crop-constrained L1 (§8t): the §8o receding-horizon window with the §8q
+// constraint-generation loop run INSIDE each window before its frames are committed.
+// Per window: solve the 3 channels (history pinned) -> recompose the window candidate ->
+// ask reqzoom_fn for its per-frame required zoom (the callback samples at the candidate's
+// own timestamps) -> shrink the boxes of breaching uncommitted frames (+halo) -> re-solve;
+// then commit K frames. Tightened boxes persist across window slides (a not-yet-committed
+// frame keeps its tightened width when it reappears), so rounds don't oscillate. Needs the
+// same look-ahead buffer as plain rt-L1; a window whose demand never breaches costs exactly
+// one extra reqzoom evaluation (O(W)).
+std::vector<TimeQuat> l1CropConstrainedRealtime(const FrameChannels& fc, double fps,
+                                                const L1OptimalParams& pr, double max_zoom,
+                                                const L1ReqZoomFn& reqzoom_fn,
+                                                L1CropReport* report) {
+    const std::size_t n = fc.ts.size();
+    const std::size_t P = static_cast<std::size_t>(std::max(4.0, pr.past_s * fps));
+    const std::size_t F = static_cast<std::size_t>(std::max(0.0, pr.look_ahead_s * fps));
+    const std::size_t K = static_cast<std::size_t>(std::max(1, pr.commit_block));
+
+    // Same tightening constants as the offline loop (§8q).
+    const double target = 1.0 + (max_zoom - 1.0) * 0.97;
+    const double kMinBox = 0.02 / kDeg;
+    const int kMaxInner = 4;      // constraint-generation rounds per window
+    const std::size_t kHalo = 2;  // frames around a violation (interpolation + RS span)
+
+    // Per-frame per-axis half-widths (rad), tightened in place as breaches are found.
+    std::array<std::vector<double>, 3> b;
+    for (int k = 0; k < 3; ++k) b[k].assign(n, pr.max_deviation_deg[k] / kDeg);
+
+    std::array<std::vector<double>, 3> out;
+    for (int k = 0; k < 3; ++k) out[k].resize(n);
+
+    L1CropReport rep;
+    std::size_t committed = 0;
+    while (committed < n) {
+        const std::size_t lo_i = committed > P ? committed - P : 0;
+        const std::size_t hi_i = std::min(n, committed + K + F);  // exclusive
+        const std::size_t W = hi_i - lo_i;
+        const std::size_t ncommit = std::min(K, n - committed);
+        if (W < 4) {  // tiny tail: pass raw through (cannot form the stencils)
+            for (std::size_t g = committed; g < n; ++g)
+                for (int k = 0; k < 3; ++k) out[k][g] = fc.ch[k][g];
+            break;
+        }
+        const BandChol chol(W);
+        std::array<std::vector<double>, 3> sol;
+        std::vector<double> sub(W), blo(W), bhi(W);
+        for (int inner = 0;; ++inner) {
+            for (int k = 0; k < 3; ++k) {
+                for (std::size_t j = 0; j < W; ++j) {
+                    const std::size_t g = lo_i + j;
+                    sub[j] = fc.ch[k][g];
+                    if (g < committed) { blo[j] = out[k][g]; bhi[j] = out[k][g]; }  // pinned
+                    else { blo[j] = fc.ch[k][g] - b[k][g]; bhi[j] = fc.ch[k][g] + b[k][g]; }
+                }
+                sol[k] = l1ChannelBounds(sub, blo, bhi, pr, chol, pr.rt_iterations);
+            }
+            const std::vector<double> wts(fc.ts.begin() + lo_i, fc.ts.begin() + hi_i);
+            const std::vector<double> rz = reqzoom_fn(recomposeChannels(wts, sol));
+            const std::size_t nz = std::min(W, rz.size());
+            rep.outer_iters = std::max(rep.outer_iters, inner + 1);
+            if (inner == 0) {  // pre-tightening stats over the frames this window commits
+                for (std::size_t j = 0; j < nz; ++j) {
+                    const std::size_t g = lo_i + j;
+                    if (g < committed || g >= committed + ncommit) continue;
+                    rep.max_reqz_before = std::max(rep.max_reqz_before, rz[j]);
+                    if (rz[j] > max_zoom) ++rep.breach_before;
+                }
+            }
+            bool any = false;
+            if (inner < kMaxInner) {
+                for (std::size_t j = 0; j < nz; ++j) {
+                    if (rz[j] <= target) continue;
+                    const std::size_t g = lo_i + j;
+                    if (g < committed) continue;  // pinned history cannot be changed
+                    any = true;
+                    const double s = std::min(
+                        0.95, std::max(0.25, (target - 1.0) / std::max(rz[j] - 1.0, 1e-9)));
+                    const std::size_t qlo = std::max(g >= kHalo ? g - kHalo : 0, committed);
+                    const std::size_t qhi = std::min(g + kHalo, hi_i - 1);
+                    for (int k = 0; k < 3; ++k)
+                        for (std::size_t q = qlo; q <= qhi; ++q) {
+                            const double dev = std::abs(sol[k][q - lo_i] - fc.ch[k][q]);
+                            b[k][q] = std::max(kMinBox, std::min(b[k][q], dev * s));
+                        }
+                }
+            }
+            if (!any || inner >= kMaxInner) {
+                for (int k = 0; k < 3; ++k)
+                    for (std::size_t j = 0; j < ncommit; ++j)
+                        out[k][committed + j] = sol[k][committed - lo_i + j];
+                break;
+            }
+        }
+        committed += ncommit;
+    }
+    std::vector<TimeQuat> result = recomposeChannels(fc.ts, out);
+    // Honest final report: one full-series evaluation of the committed path.
+    const std::vector<double> rz = reqzoom_fn(result);
+    for (double v : rz) {
+        rep.max_reqz_after = std::max(rep.max_reqz_after, v);
+        if (v > max_zoom) ++rep.breach_after;
+    }
+    if (report) *report = rep;
+    return result;
+}
+
 } // namespace
 
 std::array<double, 3> frameEulerMaxDeviationDeg(const std::vector<TimeQuat>& a,
@@ -321,6 +427,8 @@ std::vector<TimeQuat> smoothL1CropConstrained(const std::vector<TimeQuat>& quats
                                               L1CropReport* report) {
     FrameChannels fc;
     if (!sampleFrameChannels(quats, fps, fc)) return quats;
+    if (params.look_ahead_s >= 0.0)  // §8t: receding-horizon window + in-window tightening
+        return l1CropConstrainedRealtime(fc, fps, params, max_zoom, reqzoom_fn, report);
     const std::size_t nf = fc.ts.size();
     const BandChol chol(nf);
 
