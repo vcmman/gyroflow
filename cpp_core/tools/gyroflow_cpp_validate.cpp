@@ -24,10 +24,12 @@
 
 #include "gyroflow/smoothing/crop_guard.hpp"
 #include "gyroflow/smoothing/default_algo.hpp"
+#include "gyroflow/smoothing/l1_optimal.hpp"
 #include "gyroflow/stabilization/frame_transform.hpp"
 #include "gyroflow/telemetry_io.hpp"
 #include "gyroflow/zooming/adaptive_zoom.hpp"
 #include "crop_fit_utils.hpp"
+#include "l1_crop_utils.hpp"
 
 using namespace gyroflow;
 
@@ -47,6 +49,11 @@ int main(int argc, char** argv) {
     double dcr_window = 0.5, dcr_power = 1.0;
     double look_ahead = 0.0;
     bool fit_crop = false;   // crop-budget guard post-pass (zero borders inside max_zoom, SS8r)
+    std::string smoothing = "default";   // default | l1
+    L1OptimalParams l1;
+    bool l1_match_default = false;        // set L1 crop box = default_algo's per-axis deviation
+    bool l1_fit_crop = false;             // E4: constraint-generation to fit max_zoom (§8q)
+    double l1_auto_box_scale = 0.0;       // E3: >0 = derive per-axis box from lens geometry
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -72,6 +79,36 @@ int main(int argc, char** argv) {
         else if (a == "--look-ahead") look_ahead = std::stod(next("--look-ahead"));
         else if (a == "--enhanced") dcr = true;  // recommended preset (SMOOTHING_RND §8e) = DCR on
         else if (a == "--fit-crop") fit_crop = true;
+        else if (a == "--smoothing") smoothing = next("--smoothing");
+        else if (a == "--l1-match-default") l1_match_default = true;
+        else if (a == "--l1-deviation") {
+            const std::string s = next("--l1-deviation");
+            const std::size_t c1 = s.find(',');
+            if (c1 == std::string::npos) {
+                l1.max_deviation_deg = {std::stod(s), std::stod(s), std::stod(s)};
+            } else {
+                const std::size_t c2 = s.find(',', c1 + 1);
+                l1.max_deviation_deg = {std::stod(s.substr(0, c1)),
+                                        std::stod(s.substr(c1 + 1, c2 - c1 - 1)),
+                                        std::stod(s.substr(c2 + 1))};
+            }
+        }
+        else if (a == "--l1-fit-crop") l1_fit_crop = true;
+        else if (a == "--l1-auto-box") {
+            l1_auto_box_scale = 0.577;  // 1/sqrt(3): de-rate single-axis budgets for combined use
+            if (i + 1 < argc && argv[i + 1][0] != '-') l1_auto_box_scale = std::stod(argv[++i]);
+        }
+        else if (a == "--l1-iters") l1.iterations = std::stoi(next("--l1-iters"));
+        else if (a == "--l1-look-ahead") l1.look_ahead_s = std::stod(next("--l1-look-ahead"));
+        else if (a == "--l1-commit") l1.commit_block = std::stoi(next("--l1-commit"));
+        else if (a == "--l1-rt-iters") l1.rt_iterations = std::stoi(next("--l1-rt-iters"));
+        else if (a == "--l1-weights") {
+            const std::string s = next("--l1-weights");
+            const std::size_t c1 = s.find(','), c2 = s.find(',', c1 + 1);
+            l1.w1 = std::stod(s.substr(0, c1));
+            l1.w2 = std::stod(s.substr(c1 + 1, c2 - c1 - 1));
+            l1.w3 = std::stod(s.substr(c2 + 1));
+        }
         else if (a == "--keep-sensor") keep_sensor = true;
         else if (a == "--output-size") {
             const std::string s = next("--output-size");
@@ -87,6 +124,10 @@ int main(int argc, char** argv) {
                   << "             [--per-axis --smoothness-pitch/-yaw/-roll 0..1] [--look-ahead 0]\n"
                   << "  Zoom:      [--zoom-method envelope|gaussian] [--zoom-look-ahead -1]\n"
                   << "  Borders:   [--fit-crop]  (crop-budget AGC: zero black borders inside max-zoom)\n"
+                  << "  L1:        [--smoothing l1] [--l1-deviation D|Dx,Dy,Dz] [--l1-match-default]\n"
+                  << "             [--l1-weights w1,w2,w3] [--l1-iters N] [--l1-look-ahead S]\n"
+                  << "             [--l1-commit K] [--l1-rt-iters N]\n"
+                  << "             [--l1-fit-crop] [--l1-auto-box [scale]]  (zero-border modes, SS8q)\n"
                   << "  Framing:   [--keep-sensor] [--output-size WxH]\n";
         return 2;
     }
@@ -139,9 +180,9 @@ int main(int argc, char** argv) {
     sp.dcr_window_s = dcr_window;
     sp.dcr_power = dcr_power;
     sp.look_ahead_s = look_ahead;
-    std::vector<TimeQuat> smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
 
     // Adaptive FOVs over [0, frames), at ts = frame*1000/fps (Gyroflow convention).
+    // Adaptive-zoom setup (hoisted above smoothing: the L1 fit-crop path needs it).
     TransformParams tp;
     tp.fov = 1.0;
     tp.frame_readout_time_ms = readout;
@@ -161,18 +202,53 @@ int main(int argc, char** argv) {
         std::cerr << "Warning: --zoom-look-ahead applies to the envelope method only; "
                      "ignored with --zoom-method gaussian\n";
 
-    if (fit_crop) {  // crop-budget guard post-pass (zero borders inside max_zoom, §8r)
-        CropGuardParams cp;
-        CropGuardReport rep;
-        smoothed = applyCropBudgetGuard(
-            meta.quaternions, smoothed, fps, max_zoom / 100.0,
-            gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width, height,
-                                             fps, tp, az),
-            cp, &rep);
-        std::cerr << "fit-crop guard: rounds " << rep.outer_iters << ", breach "
-                  << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
-                  << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
-                  << rep.min_gain << " over " << rep.gained_frames << " frames\n";
+    std::vector<TimeQuat> smoothed;
+    if (smoothing == "l1") {
+        if (fit_crop)
+            std::cerr << "Note: --fit-crop is the EMA-family guard; with --smoothing l1 "
+                         "use --l1-fit-crop\n";
+        if (l1_match_default) {  // crop box = the deviation default_algo actually used
+            const std::vector<TimeQuat> def = smoothDefault(meta.quaternions, duration_ms, sp);
+            l1.max_deviation_deg = frameEulerMaxDeviationDeg(meta.quaternions, def, fps);
+            std::cerr << "L1 match-default crop box (deg): " << l1.max_deviation_deg[0] << ", "
+                      << l1.max_deviation_deg[1] << ", " << l1.max_deviation_deg[2] << "\n";
+        }
+        if (l1_auto_box_scale > 0.0) {  // E3: geometric per-axis budget from max_zoom
+            l1.max_deviation_deg = gyroflow_tools::autoBoxFromGeometry(
+                lens, width, height, fps, tp, az, max_zoom / 100.0, l1_auto_box_scale);
+            std::cerr << "L1 auto box (deg, scale " << l1_auto_box_scale << "): "
+                      << l1.max_deviation_deg[0] << ", " << l1.max_deviation_deg[1] << ", "
+                      << l1.max_deviation_deg[2] << "\n";
+        }
+        if (l1_fit_crop) {  // E4/§8t: constraint generation against the actual crop demand
+            L1CropReport rep;
+            smoothed = smoothL1CropConstrained(
+                meta.quaternions, fps, l1, max_zoom / 100.0,
+                gyroflow_tools::makeReqZoomFn(&meta.quaternions, &lens, width, height,
+                                              fps, tp, az),
+                &rep);
+            std::cerr << "L1 fit-crop" << (l1.look_ahead_s >= 0.0 ? " (rt window)" : "")
+                      << ": outer " << rep.outer_iters << ", breach "
+                      << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
+                      << rep.max_reqz_before << " -> " << rep.max_reqz_after << "\n";
+        } else {
+            smoothed = smoothL1Optimal(meta.quaternions, fps, l1);
+        }
+    } else {
+        smoothed = smoothDefault(meta.quaternions, duration_ms, sp);
+        if (fit_crop) {  // crop-budget guard post-pass (zero borders inside max_zoom, §8r)
+            CropGuardParams cp;
+            CropGuardReport rep;
+            smoothed = applyCropBudgetGuard(
+                meta.quaternions, smoothed, fps, max_zoom / 100.0,
+                gyroflow_tools::makeCropDemandFn(ts_all, &meta.quaternions, &lens, width,
+                                                 height, fps, tp, az),
+                cp, &rep);
+            std::cerr << "fit-crop guard: rounds " << rep.outer_iters << ", breach "
+                      << rep.breach_before << " -> " << rep.breach_after << ", maxReqZ "
+                      << rep.max_reqz_before << " -> " << rep.max_reqz_after << ", min gain "
+                      << rep.min_gain << " over " << rep.gained_frames << " frames\n";
+        }
     }
     std::vector<double> raw_fovs;
     const std::vector<double> fovs =

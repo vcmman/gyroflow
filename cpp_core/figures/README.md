@@ -27,7 +27,18 @@ All commands are run from the **repo root**. On a headless box prefix Python wit
 | `dynamic_vs_static_zoom_blackborder.png` | validate `raw_fov`, 5 configs (incl. gaussian + L1) | dynamic vs static zoom black border by config — dynamic ≈0 for all; static exposes each config's crop-demand shape (L1 capped, gaussian peaky); §8c′ |
 | `zoom_lookahead_causal_vs_1s.png` | validate `--zoom-look-ahead` (offline/causal/1s) | FOV look-ahead: black border 0% for all modes; 1s look-ahead removes the causal zoom pops (ramps vs snaps); §8h |
 | `dy_spectrum_ours_vs_dji.png` | Welch PSD of cached dy | residual spectrum: DJI = one dominant cadence peak (reads "clean", is the un-removed bob); ours lower in every band, 5× lower roughness; §8i |
-| `clamp_harmonic_distortion.png` | PSD + zoom of cached dy | double-peak diagnosis: memoryless saturation pumps 2nd-harmonic (ours 0.27 vs DJI 0.04) — DJI is a compressor, not a clipper; §8j-5 |
+| `clamp_harmonic_distortion.png` | PSD + zoom of cached dy | double-peak diagnosis + L1 fix: saturation pumps 2nd-harmonic (clamps 0.27–0.37 vs DJI 0.04); L1 joint optimization restores the clean waveform (0.043); §8j-5/§8j-6 |
+| `ema_vs_dji_vs_l1_dy.png` | cached dy (0004) | converged three-way: plain EMA steadiest (unbounded class); L1 box12 beats DJI in the bounded class; waveform-cleanliness axis; §8j-8 |
+| `all_bounded_experiments_dy.png` | cached dy (0004) | every clamp + L1 experiment in one view: bounded/unconstrained trace zooms + all 8 configs sorted by dy RMS with roughness + harmonic; §8j-8 |
+| `all_bounded_experiments_dy_full.png` | cached dy (0004) | same series over the full 1973 frames (envelope/distribution view) |
+| `all_bounded_experiments_dy_400_900.png` | cached dy (0004) | frames 400–900 window (calm→violent transition), per-window RMS |
+| `run0002_bounded_experiments_dy.png` | cached dy (run 0002) | replication on run 0002: ladder INVERTS — L1 box12 beats even DCR (0.639 vs 0.767) when the box doesn't bind; §8j-9 |
+| `run0002_bounded_experiments_dy_full.png` | cached dy (run 0002) | same, full 1487 frames |
+| `run0002_dy_traces_all_modes.png` | cached dy (run 0002, 4:3) | dy traces, all seven final modes (default/AGC/DCR/DCR+1s LA/offline L1/rt-L1/DJI): rt-L1 rides on offline L1, DCR+LA1 rides on DCR, AGC ≈ default, DJI carries the cadence; §8o |
+| `run0002_dy_dcr_la1_vs_offline.png` | cached dy (run 0002, 4:3) | focused pair: DCR offline vs DCR+1s look-ahead vs DJI (frames 400–900) — the two DCR traces coincide (≤4 % dy Δ on all 4 clips); §8o |
+| `c0004_dy_traces_all_modes.png` | cached dy (0004, 4:3) | same seven series on the violent clip: DCR/DCR+LA1 stay flat through the impact burst (RMS 1.72 vs DJI 5.95); the bounded modes (L1/rt-L1/AGC) follow the violence inside their budget like DJI; §8o |
+| `l1_fitcrop_dy_vs_borders.png` | rendered dy (4 clips, 4:3) | zero-border L1: `--l1-fit-crop` (E4 constraint generation) vs static box 7.5 (E2) vs box12-with-borders — E4 wins the zero-border class on 3/4 clips and stays under DJI on 0004; §8q |
+| `unified_4x3_dy_accel_jerk.png` | cached dy (4:3) + validate CSVs | FINAL unified matched-4:3: 4 clips × {default, AGC-8, DCR, offline L1, rt-L1} vs DJI — rt-L1 ≡ offline L1; rt-L1 beats AGC on all quality metrics except the box-binding clip; §8m/§8o |
 | `deviation_clamp_vs_dji.png` | cached dy + validate CSVs | 3-panel (dy trace / PSD / smoothed-path accel): hard clamp reproduces DJI; SOFT clamp matches DJI’s amplitude with 37 % less roughness (burrs fixed); §8j/§8j-4 |
 | `dcr_fitcrop_guard.png` | rendered dy (4 clips, 4:3) | crop-budget guard (`--fit-crop`): DCR's borders (17.7 % wedges on 0004) -> zero on all four clips; the honest 130 % budget costs 3.9× dy on the violent clip (DCR's flatness was border-financed); §8r |
 | `rust_native_vs_fitcrop_guard_0004.png` | rendered dy (0004, 4:3) | guard validation vs golden: Rust default (native max_zoom_iterations) vs cpp `default --fit-crop` — dy −1.1 %, roughness −18 %, traces coincide outside the burst; §8r |
@@ -94,6 +105,9 @@ for CLIP in 0001 0002; do
   $BIN $IN --telemetry "$B" --dcr --look-ahead 1 -o "${O}_dcr_la1.mp4" # DCR + 1 s look-ahead
 done
 ```
+
+Append `--keep-sensor` for the matched-4:3 variants (`*_4x3.mp4`) used in every DJI comparison
+(§8m/§8o); the DCR+1s-LA 4:3 set covers all four clips (run 0001/0002 + 20260708 0003/0004).
 
 > **L1** (`_l1.mp4`) is produced on a different branch (`claude/speed-bump-jolt-rnd`,
 > `--smoothing l1 --l1-match-default`); it is not reproducible on this branch. If the `_l1.mp4`

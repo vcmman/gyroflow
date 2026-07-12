@@ -15,6 +15,16 @@ original 4:3 sensor and the 16:9 stabilized crop are comparable):
   * Optical-flow magnitude — mean Farneback flow magnitude between consecutive frames
     (captures rotation / complex residual motion, not just translation). Lower = steadier.
 
+Transient-sensitive metrics (the mean metrics above *average jolts away* — a single severe
+jolt barely moves the mean, but it is exactly what a viewer notices). These target the worst
+moments instead of the average:
+
+  * shift P95 — 95th-percentile inter-frame shift. The worst pans/jolts, not the average.
+  * shift jerk (RMS) — RMS of the frame-to-frame *change* in the shift vector. A smooth pan
+    has near-zero jerk; a jolt is a spike in jerk. This is the metric that actually moves when
+    a jolt is removed, and the primary score for severe-jolt work. Lower = steadier.
+  * ITF P05 — 5th-percentile (worst) consecutive-frame PSNR: the single ugliest transition.
+
 Usage:
   # single clip
   python3 tools/stabilization_quality.py VIDEO.mp4 [--max-frames 300] [--width 640]
@@ -57,7 +67,8 @@ def analyze(path, max_frames, width):
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise SystemExit(f"cannot open {path}")
-    psnrs, shifts, flows = [], [], []
+    psnrs, flows = [], []
+    shift_vecs = []  # (dx, dy) per consecutive pair — kept as vectors for the jerk metric
     prev = None
     n = 0
     while max_frames <= 0 or n < max_frames:
@@ -69,7 +80,7 @@ def analyze(path, max_frames, width):
             mse = np.mean((g - prev) ** 2)
             psnrs.append(10 * np.log10(255.0 ** 2 / mse) if mse > 0 else 99.0)
             (dx, dy), _ = cv2.phaseCorrelate(prev, g)
-            shifts.append((dx * dx + dy * dy) ** 0.5)
+            shift_vecs.append((dx, dy))
             flow = cv2.calcOpticalFlowFarneback(
                 prev, g, None, 0.5, 3, 15, 3, 5, 1.2, 0)
             flows.append(float(np.mean(np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2))))
@@ -78,21 +89,45 @@ def analyze(path, max_frames, width):
     cap.release()
     if not psnrs:
         raise SystemExit(f"not enough frames in {path}")
+    psnrs = np.asarray(psnrs)
+    flows = np.asarray(flows)
+    sv = np.asarray(shift_vecs)                       # (m, 2)
+    shifts = np.sqrt((sv ** 2).sum(axis=1))           # per-pair shift magnitude
+    # jerk = magnitude of the change in the shift vector between consecutive pairs (= the
+    # second difference of position). A steady pan is ~constant velocity => low jerk; a jolt
+    # is a velocity spike => high jerk. RMS so a few big spikes dominate (unlike the mean).
+    djerk = np.diff(sv, axis=0)
+    jerk = np.sqrt((djerk ** 2).sum(axis=1)) if len(sv) > 1 else np.zeros(0)
+    # flow jerk = RMS of the frame-to-frame change in mean optical-flow magnitude. Mean flow
+    # barely drops with stabilization (pan + scene motion + zoom magnification dominate); the
+    # transient *change* in flow is what a jolt produces, so this is the optical-flow analogue
+    # of shift jerk. Lower = steadier.
+    flow_jerk = np.diff(flows) if len(flows) > 1 else np.zeros(0)
     return {
         "frames": n,
-        "itf_db": sum(psnrs) / len(psnrs),
-        "shift_px": sum(shifts) / len(shifts),
-        "shift_pctw": 100.0 * (sum(shifts) / len(shifts)) / width,
-        "flow_px": sum(flows) / len(flows),
+        "itf_db": float(psnrs.mean()),
+        "itf_p05_db": float(np.percentile(psnrs, 5)),
+        "shift_px": float(shifts.mean()),
+        "shift_pctw": 100.0 * float(shifts.mean()) / width,
+        "shift_p95_px": float(np.percentile(shifts, 95)),
+        "shift_jerk_px": float(np.sqrt((jerk ** 2).mean())) if len(jerk) else 0.0,
+        "flow_px": float(flows.mean()),
+        "flow_p95_px": float(np.percentile(flows, 95)),
+        "flow_jerk_px": float(np.sqrt((flow_jerk ** 2).mean())) if len(flow_jerk) else 0.0,
     }
 
 
 def show(label, r):
     print(f"{label} ({r['frames']} frames):")
-    print(f"  ITF (consecutive-frame PSNR) : {r['itf_db']:.2f} dB     (higher = steadier)")
+    print(f"  ITF (consecutive-frame PSNR) : {r['itf_db']:.2f} dB  "
+          f"(P05 {r['itf_p05_db']:.2f})    (higher = steadier)")
     print(f"  phase-corr shift             : {r['shift_px']:.3f} px  "
           f"({r['shift_pctw']:.3f}% width)  (lower = steadier)")
-    print(f"  optical-flow magnitude       : {r['flow_px']:.3f} px     (lower = steadier)")
+    print(f"  shift P95 (worst jolts)      : {r['shift_p95_px']:.3f} px   (lower = steadier)")
+    print(f"  shift jerk (RMS, transients) : {r['shift_jerk_px']:.3f} px   (lower = steadier) *")
+    print(f"  optical-flow magnitude       : {r['flow_px']:.3f} px  "
+          f"(P95 {r['flow_p95_px']:.3f})  (lower = steadier)")
+    print(f"  optical-flow jerk (RMS)      : {r['flow_jerk_px']:.3f} px   (lower = steadier) *")
 
 
 def main():
@@ -114,9 +149,15 @@ def main():
         print("=== improvement (original -> stabilized) ===")
         print(f"  ITF                : {o['itf_db']:.2f} -> {s['itf_db']:.2f} dB "
               f"(+{s['itf_db'] - o['itf_db']:.2f} dB)")
-        for key, name in (("shift_px", "phase-corr shift"), ("flow_px", "optical-flow")):
+        print(f"  ITF P05 (worst)    : {o['itf_p05_db']:.2f} -> {s['itf_p05_db']:.2f} dB "
+              f"(+{s['itf_p05_db'] - o['itf_p05_db']:.2f} dB)")
+        for key, name in (("shift_px", "phase-corr shift"), ("shift_p95_px", "shift P95"),
+                          ("shift_jerk_px", "shift jerk (RMS)"), ("flow_px", "optical-flow"),
+                          ("flow_p95_px", "optical-flow P95"), ("flow_jerk_px", "optical-flow jerk")):
             red = 100.0 * (1 - s[key] / o[key]) if o[key] else 0.0
-            print(f"  {name:18s} : {o[key]:.3f} -> {s[key]:.3f} px  ({red:.1f}% less residual motion)")
+            tag = "  <- jolt metric" if key in ("shift_jerk_px", "flow_jerk_px") else ""
+            print(f"  {name:18s} : {o[key]:.3f} -> {s[key]:.3f} px  "
+                  f"({red:.1f}% less residual motion){tag}")
 
 
 if __name__ == "__main__":

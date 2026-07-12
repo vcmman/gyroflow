@@ -17,6 +17,7 @@ add_library(gyroflow_cpp_core
     src/telemetry_io.cpp
     src/smoothing/crop_guard.cpp
     src/smoothing/default_algo.cpp
+    src/smoothing/l1_optimal.cpp
     src/stabilization/frame_transform.cpp
     src/stabilization/undistort.cpp
     src/zooming/adaptive_zoom.cpp

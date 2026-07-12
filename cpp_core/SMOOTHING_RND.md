@@ -653,6 +653,573 @@ problem, `min Σ|derivatives| s.t. |path−raw| ≤ B`, is exactly the **L1-opti
 (`claude/speed-bump-jolt-rnd`) with a small box: its solution rides the box as smooth polynomial
 arcs, no clipping, no harmonics, bound exact. Also explains §8c′ (L1 has the flattest crop demand).
 
+**8j-6. Joint optimization VERIFIED — L1 with a small box IS the clean DJI mode (CONFIRMED).**
+The L1 branch was rebased onto the full current stack (this branch now carries DCR/`--enhanced`,
+look-aheads, clamps, `raw_fov` AND `--smoothing l1`; golden md5 unchanged, ctest 7/7). Rendered
+0004 with `--smoothing l1 --l1-deviation 5` and compared all three bounded-deviation
+implementations on the actual pixels:
+
+| series | dy RMS | <1 Hz | 1–4 Hz | roughness | **2nd-harm/fund** |
+|---|---:|---:|---:|---:|---:|
+| hard clamp 5° | 6.949 | 1.826 | 5.544 | 6.074 | 0.366 |
+| soft clamp 5° | 5.944 | 1.697 | 5.375 | 3.317 | 0.269 |
+| **L1 box 5°** | 7.328 | 2.282 | 6.348 | 5.197 | **0.043** |
+| DJI in-camera | 5.951 | 2.267 | 4.564 | 5.300 | **0.039** |
+
+- **The waveform-shape signature matches DJI exactly**: L1's 2nd-harmonic ratio 0.043 vs DJI's
+  0.039 (clamps: 0.27–0.37). In the dy zoom the split peaks are gone — one smooth peak per swing,
+  same as DJI (`clamp_harmonic_distortion.png`, updated). L1's <1 Hz band (2.282) is also nearly
+  identical to DJI's (2.267).
+- Amplitude is tunable by the box: the 5° *per-axis* box (combined geodesic up to ~9°) lets
+  slightly more through than DJI (dy 7.33 vs 5.95); ~4° per-axis would land the amplitude. Path
+  acceleration 326 °/s² — the lowest of the three bounded modes (hard 899 / soft 557).
+- Telemetry HF is crushed (33×) yet image HF stays ~DJI-level — the image-domain HF at these
+  amplitudes is the §3 translational/RS content, unreachable by any rotational path.
+
+**Final ranking of the bounded-deviation ("DJI look") implementations:** L1-joint ≫ soft clamp >
+hard clamp. The sequential filter+limit structure is inherently a waveform clipper; solving
+smooth+box jointly is both the elegant formulation and the measured winner. Practical notes: L1
+cost ~2 s for a 66 s clip (2000 ADMM iterations) vs microseconds for the clamps; the soft clamp
+remains a reasonable cheap approximation for in-camera use, and the AGC/envelope-gain idea (8j-5a)
+is the middle ground if L1 is too heavy. Output: `dji6_L/20260708/0004_D_cpp_l1box5.mp4`.
+
+**8j-7. Tuning the box — L1 box 12° beats DJI on every measure (dy −29 %).** Two candidate levers
+for lowering `dy` further, swept on telemetry then render-confirmed:
+- **Velocity weight w₁ is NOT the lever** (10→100 gives −2 % dy and *worsens* the harmonic ratio
+  0.087→0.139 — per-sample velocity pressure re-introduces mild waveform distortion). Keep the
+  jerk-dominant defaults (10/1/100).
+- **Box size is the lever**: 5→8→12° (per-axis) drops proxy dy 2.25→2.00→1.88, and — key point —
+  **box 12° is the largest box whose required zoom stays inside the default 130 % clamp**
+  (maxReqZ 1.278): the crop-budget-optimal L1. Rendered 0004:
+
+| series | dy RMS | <1 Hz | 1–4 Hz | 4–15 Hz | roughness | 2nd-harm | bb mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| L1 box 5° | 7.328 | 2.282 | 6.348 | 2.862 | 5.197 | 0.043 | 0.005 % |
+| **L1 box 12°** | **5.204** | **1.881** | **4.353** | **2.144** | **3.720** | 0.062 | 0.005 % |
+| DJI in-camera | 5.951 | 2.267 | 4.564 | 3.073 | 5.300 | 0.039 | 0.002 % |
+
+→ **L1 box 12° is strictly better than DJI in the bounded-crop class**: dy −12 %, every band lower,
+roughness −30 %, waveform still clean (0.062), zero geometric border, crop bounded by construction.
+dy path: 7.33 (box 5) → **5.20 (box 12)**, i.e. −29 % from box tuning alone. Continuing to grow the
+box converges toward DCR quality (1.95) but the required zoom leaves the clamp — the box↔max_zoom
+coupling is the productization item already on the list (derive B from `max_zoom` automatically →
+a self-tuning "max quality within the crop budget" L1 mode). Output:
+`dji6_L/20260708/0004_D_cpp_l1box12.mp4`.
+
+**8j-8. Converged three-way picture (EMA vs DJI vs L1), violent clip 0004** — figure
+`ema_vs_dji_vs_l1_dy.png` (trace zoom / spectrum / summary bars):
+
+| method | dy RMS | roughness | 2nd-harm (waveform) | max required zoom |
+|---|---:|---:|---:|---:|
+| plain two-pass EMA (no DCR) | **4.039** | **2.269** | 0.132 | 1.18 |
+| DJI in-camera | 5.951 | 5.300 | **0.039** | bounded (n/a) |
+| L1 box 12° | 5.204 | 3.720 | **0.062** | 1.28 |
+
+- **Unconstrained class:** the plain velocity-adaptive EMA is the steadiest of the three (dy 4.04)
+  at modest crop demand (1.18) — and DCR pushes further still (1.95 at required 1.8, clamped).
+  Nothing bounded can match this; the guarantee costs amplitude.
+- **Bounded class:** L1 box 12° beats DJI on amplitude (−12 %) AND roughness (−30 %) with an
+  equally clean waveform — the class winner (§8j-7).
+- **Waveform cleanliness is its own axis:** even the plain EMA shows a mild 2nd-harmonic (0.132,
+  3× DJI) — its velocity-adaptive α modulation is itself a weak per-sample nonlinearity. Only the
+  jointly-optimized L1 (0.062) reaches DJI's (0.039) distortion-free class.
+
+So the final map: **DCR / EMA for maximum steadiness (unbounded crop demand), L1-with-box for the
+guaranteed-crop class (beats DJI), soft clamp as its cheap real-time approximation.**
+
+Merged evidence views (all eight configs — original / EMA / DCR / hard clamp / soft clamp /
+L1 box5 / L1 box12 / DJI): `all_bounded_experiments_dy.png` (trace zooms + sorted summary bars),
+`all_bounded_experiments_dy_full.png` (full 1973 frames), `all_bounded_experiments_dy_400_900.png`
+(calm→violent transition window). Full dy ladder on 0004: DCR 1.95 < EMA 4.04 < **L1 box12 5.20**
+< soft clamp 5.94 ≈ DJI 5.95 < hard clamp 6.95 < L1 box5 7.33 < original 12.60.
+
+## 8j-9. Replication on run 0002 — the ladder INVERTS: L1 box12 beats even DCR
+
+Repeated the whole experiment matrix on the original violent running clip (`dji6_L/run` 0002,
+1487 frames, original dy 8.53 px — less violent than 0004's 12.6). Figures:
+`run0002_bounded_experiments_dy.png` / `_full.png`.
+
+| rank | config | dy RMS | roughness | note |
+|---|---|---:|---:|---|
+| **1** | **L1 box 12°** | **0.639** | **0.218** | **beats DCR** |
+| 2 | DCR | 0.767 | 0.220 | |
+| 3 | EMA default | 1.300 | 0.383 | |
+| 4 | L1 box 5° | 3.100 | 1.009 | beats DJI |
+| 5 | soft clamp 5° | 3.230 | 2.116 | beats DJI |
+| 6 | hard clamp 5° | 3.814 | 3.687 | ≈ DJI |
+| 7 | DJI in-camera | 3.815 | 1.237 | |
+| 8 | original | 8.534 | 5.781 | |
+
+**Key finding — the box-vs-violence law.** On 0002 the 12° box barely binds (max required zoom
+1.329, 9 frames marginally past the clamp), so L1 acts as an (almost) *unconstrained global
+optimizer* — and it **beats the greedy recursive EMA family outright** (0.639 vs DCR's 0.767 at
+equal roughness). Combined with 0004 (box binds → DCR wins 1.95 vs 5.20) the rule is:
+
+> **when the clip's demand fits inside the crop budget, jointly-optimized L1 is the best smoother
+> we have; when demand exceeds the budget, the unbounded DCR wins on amplitude.**
+
+This makes 0c′ (derive the box from `max_zoom` automatically) more than a convenience — a
+self-tuning L1 would inherit the best of both regimes on a per-clip basis, and is the natural
+candidate to challenge DCR as the default. Also note: on 0002 *every* bounded config of ours beats
+DJI (even L1 box5 / soft clamp). (Harmonic-ratio caveat: for heavily-smoothed configs — L1 box12 /
+DCR — the 2nd/fund ratio is meaningless because the fundamental itself is crushed; their absolute
+harmonic energy is the lowest of all.)
+
+## 8k. Plain EMA (no DCR) vs DJI — the stock defaults already win, with ZERO black borders
+
+Isolated comparison of the **unmodified Gyroflow default smoother** against DJI in-camera, across
+all four measured clips. Parameters — exactly `DefaultAlgoParams` defaults, the golden path:
+`smoothness 0.5`, `max_smoothness 1.0 s` (zero-velocity time constant), `alpha_0_1s 0.1 s`
+(max-velocity time constant), `second_pass on`; per-axis / DCR / clamps / look-ahead all off;
+zoom envelope, window 4 s, `max_zoom 130 %` (identical for every config).
+
+| clip | EMA `dy` | DJI `dy` | ratio | EMA rough | DJI rough | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| run 0001 | 0.675 | 1.926 | **2.9×** | 0.158 | 0.654 | **4.1×** |
+| run 0002 | 1.369 | 3.843 | **2.8×** | 0.383 | 1.237 | **3.2×** |
+| 0004 (violent) | 4.039 | 5.951 | **1.5×** | 2.269 | 5.300 | **2.3×** |
+| bike (smooth) | 0.320 | 0.311 | tie | 0.145 | 0.144 | tie |
+
+- **Amplitude AND smoothness: 1.5–4× better than DJI on violent footage, tie on smooth** —
+  before any of our enhancements. (As-delivered framing caveat: ours 16:9 vs DJI 4:3; violent
+  multiples are immune to it, the smooth-footage tie may tilt slightly DJI at matched 4:3 — the
+  §6 periphery effect.)
+- **Zero geometric black border**: the plain EMA's required zoom never breaches the 130 % clamp on
+  any measured clip (peaks 1.16–1.27; even 0004 only 1.18) — unlike DCR, whose violent-clip spikes
+  (1.4–1.8, up to 3 % of frames, wedges up to ~28 % of half-frame on breach frames) are the black
+  borders visible in DCR exports.
+- Waveform: near-DJI-clean on run 0002 (2nd-harm 0.020 vs 0.017), mildly distorted on 0004
+  (0.132 vs 0.039 — the velocity-adaptive α is itself a weak per-sample nonlinearity, §8j-8).
+- Mechanism note: EMA and DJI are the same *family* ("follow more when motion is big") — EMA
+  modulates a time constant with no hard budget, so it keeps far more HF suppression than DJI's
+  budget-saturation collapse (0004 attenuation profile 1.1/4.2/34× vs DJI's flat 1.3/2.3/2.1×).
+
+**Practical config ladder** (updates the §8j-8 map with the border dimension):
+1. **conservative / zero-border**: plain EMA — already ≥ DJI everywhere;
+2. **max steadiness**: DCR + `--max-zoom 180` (kills the clamp wedges at zero cost on quiet
+   sections — the envelope only takes what each frame needs);
+3. **bounded-crop guarantee / cinematic**: L1 box12 (beats DCR outright when the box doesn't
+   bind, §8j-9).
+
+## 8l. Mechanism taxonomy — how each smoother's nonlinearity shapes the waveform
+
+A unifying frame for everything measured in §8i–§8k. Decompose the shake residual into two
+timescales:
+
+```
+d(t) ≈ A(t) · sin(2πf₀t)
+        slow      fast
+      envelope   carrier (cadence, ~1.4 Hz, period ~0.7 s)
+```
+
+The **carrier** is each individual swing; the **envelope** A(t) is how violent the motion is,
+varying over seconds. Every stabilizer that limits amplitude applies some effective attenuation —
+the question that decides waveform cleanliness is **how fast that attenuation is allowed to
+change**:
+
+- **Envelope-level slowly-varying gain** ("AGC" / compressor): `out = g(t)·d(t)` with g changing
+  only across cycles (slower than the carrier). Within any one cycle g ≈ const, so a sinusoid
+  stays a sinusoid — amplitude control happens *between* cycles, **zero harmonic distortion**.
+  Audio analogy: a compressor's attack/release rides the envelope.
+- **Per-sample saturation** (clipper): reacts *within* the cycle — reshapes the waveform itself
+  (flattens the tops), pumping energy into harmonics. Audio analogy: a hard/soft clipper.
+
+Five mechanism classes, anchored by the measured 2nd-harmonic ratio (0004, f₀ = 1.38 Hz;
+DJI-clean ≈ 0.04):
+
+| class | mechanism | gain-variation speed | 2nd-harm (measured) | budget? |
+|---|---|---|---|---|
+| linear filter (fixed-α EMA, Gaussian kernel) | LTI convolution | none | zero by definition | no |
+| **envelope gain / AGC (= DJI's form)** | g(t) follows the envelope | **slower than the carrier** | **0.039** | soft, on the envelope |
+| velocity-adaptive EMA (our default / DCR) | α driven by smoothed velocity (τ = 0.1 s) | **sub-cycle** (0.1 s < 0.7 s period) but smooth | 0.020 (mild motion) – 0.132 (violent) | no |
+| per-sample saturation (hard / soft clamp) | project/compress each sample | sample rate | 0.269 – 0.366 | hard, exact |
+| **joint optimization (L1 + box)** | not a gain — globally re-solves the path | — (global) | **0.043 – 0.062** | hard, exact |
+
+Readings:
+- **DJI's 0.039 identifies its limiter as an AGC**: no time-constant tuning of a low-pass can
+  produce its frequency-flat, distortion-free budget collapse (§8j-1/2) — only an envelope-rate
+  gain (or an equivalent global method) can.
+- **Our velocity-adaptive EMA sits in between**: the *fixed-α* EMA core is linear (no distortion
+  question at all); the mild distortion (0.132 under violence) comes purely from α being modulated
+  at sub-cycle rate — the velocity smoothing τ (0.1 s) is *shorter* than the cadence period, so α
+  breathes within each swing. Driving α from an **envelope** of velocity/deviation instead (the
+  §8j-5b idea) would turn it into a true AGC — very likely DJI's actual implementation.
+- **L1 is a third category, not a gain at all**: its nonlinearity (soft-thresholding) manifests as
+  *sparse knot placement*, not waveform reshaping — within segments the output is an exact
+  polynomial, and at the box it rides tangential arcs. It reaches AGC-level cleanliness (0.043)
+  while *also* delivering what an AGC cannot: an exact deviation bound and global optimality.
+- The clamps are the cautionary tale: any per-sample limiter — however soft — is a clipper, and
+  the 6–9× harmonic penalty vs DJI is structural, not tunable away (§8j-4/5).
+
+## 8m. Unified matched-4:3 comparison — 4 clips × {default, DCR, L1 box12} vs DJI
+
+All configs re-rendered at `--keep-sensor` 4:3 (full sensor, same framing as DJI — the periphery
+included, no 16:9 flattery), all four clips. dy = image domain; accel/jerk = telemetry (DJI n/a).
+Figure: `unified_4x3_dy_accel_jerk.png`.
+
+| clip | default | DCR | L1 box12 | DJI | dy winner |
+|---|---:|---:|---:|---:|---|
+| run 0001 | 0.727 | 0.461 | **0.304** | 1.924 | L1 (6.3× vs DJI) |
+| run 0002 | 1.606 | 0.834 | **0.700** | 3.815 | L1 (5.5× vs DJI) |
+| 0003 (calm, 277 s) | 0.359 | 0.344 | **0.274** | 0.334 | **L1 — beats DJI on calm too** |
+| 0004 (most violent) | 4.609 | **1.720** | 4.901 | 5.951 | DCR (3.5× vs DJI) |
+
+telemetry accel / jerk (°/s², °/s³):
+
+| clip | default | DCR | L1 box12 |
+|---|---|---|---|
+| run 0001 | 49 / 625 | 33 / 582 | **19 / 121** |
+| run 0002 | 93 / 1216 | 43 / 785 | **30 / 180** |
+| 0003 | 25 / 198 | 23 / 204 | **18 / 75** |
+| 0004 | 215 / 2856 | **65 / 1200** | 180 / 1759 |
+
+**Headlines:**
+1. **L1 box12 wins 3 of 4 clips outright — including the calm clip at matched 4:3** (0.274 vs
+   DJI 0.334, −18 %), the exact scenario where default/DCR slightly *lose* to DJI (0.359/0.344 vs
+   0.334 — the §6 periphery deficit, replicated on 0003). The globally-optimized polynomial path
+   apparently also excites less periphery residual. This closes the last per-scenario gap vs DJI.
+2. **The box-vs-violence law (§8j-9) holds at 4:3**: on the most violent clip (0004, original
+   12.6 px) the box binds and DCR wins (1.720); L1 box12 degrades to ≈ default. Everywhere else
+   L1 dominates all three metrics simultaneously (dy AND accel AND jerk — jerk 3–5× below DCR).
+3. **vs DJI at fully matched framing: our best config beats DJI on every clip** (L1 on three,
+   DCR on the fourth) — no remaining scenario where DJI leads.
+
+This further sharpens 0c′: a self-tuning L1 (box from `max_zoom`, falling back toward DCR-like
+behaviour only when the required box would exceed the budget) would be the best-of-all-rows
+single default.
+
+## 8o. Real-time L1 with a 1 s future buffer — offline quality at 56× realtime (CONFIRMED)
+
+The last objection to L1 as an in-camera mode was cost/latency (global offline solve). Implemented
+a **receding-horizon** variant (`--l1-look-ahead S`; `<0` = offline global, unchanged):
+
+- window = [**2 s past context** | **commit block K=15 frames** | **S=1 s future buffer**];
+- already-committed samples are pinned by a zero-width box (continuity anchor — the window
+  solution must pass exactly through the emitted history);
+- solve the small window by the same per-euler ADMM (800 iterations, converges fast at this size),
+  commit K frames, slide. Streamable: needs exactly the S-second future buffer that the smoothing
+  (§7) and zoom (§8h) look-aheads already share.
+
+**Telemetry (0004, box 12°):**
+
+| config | dy proxy | 2nd-harm | accel | maxReqZ | cost (66 s clip) |
+|---|---:|---:|---:|---:|---:|
+| offline L1 (global) | 1.880 | 0.036 | 161 | 1.278 | ~2 s |
+| **rt-L1, 1 s buffer** | **1.879** | **0.033** | **166** | 1.319 | **1.17 s (56× RT)** |
+| rt-L1, 0 s (causal) | 2.148 | 0.724 | 427 | 1.406 | — |
+
+**Rendered (matched 4:3, image domain):**
+
+| series | dy | 1–4 Hz | roughness | harm |
+|---|---:|---:|---:|---:|
+| offline L1 box12 | 4.901 | 4.145 | 3.169 | 0.042 |
+| **rt-L1 1 s** | **4.915** | 4.101 | 3.357 | 0.079 |
+| DJI in-camera | 5.951 | 4.564 | 5.300 | 0.039 |
+
+- **1 s of future is sufficient**: the rt solution is metrically indistinguishable from the global
+  offline solve (dy +0.3 % on pixels, harmonic same class) — and still beats DJI. The causal (0 s)
+  ablation collapses (harm 0.72, accel 2.6×): the future buffer is where the quality comes from,
+  exactly as in §7/§8h.
+- **Tuning lesson**: the initial "commit-boundary artifacts" (harm 0.14 at 300 iters) were
+  *under-convergence*, not a structural flaw — 800 iterations per window removes them entirely,
+  and a larger commit block (K=15) is *better* (fewer, better-converged windows).
+- **Cost**: 1.17 s for a 66 s clip single-threaded ≈ **56× realtime** at 800 iterations,
+  O(nf · rt_iterations), constant memory — in-camera viable. Combined with §8m/§8j-9 this closes
+  L1's last gap: it now wins 3 of 4 clips *and* runs in real time with the same 1 s buffer the
+  rest of the pipeline uses.
+
+**Full-matrix confirmation (all four clips, matched 4:3, unified figure updated):**
+
+| clip | offline L1 dy | rt-L1 dy | offline accel | rt accel | rt jerk vs offline |
+|---|---:|---:|---:|---:|---|
+| run 0001 | 0.304 | **0.306** | 19 | 19 | 292 vs 121 |
+| run 0002 | 0.700 | **0.669** | 30 | 29 | 388 vs 180 |
+| 0003 | 0.274 | **0.283** | 18 | 21 | 236 vs 75 |
+| 0004 | 4.901 | **4.915** | 180 | 180 | 1674 vs 1759 |
+
+- dy and acceleration are **identical to offline on every clip**; the residual fingerprint is a
+  2–3× jerk premium on calm clips (commit-boundary micro-kinks, invisible in dy/harm/accel).
+- **Iteration economics**: 800 iters = 56× realtime but leaves jerk artifacts on calm clips
+  (under-convergence at commit boundaries, e.g. run 0001 dy 0.412 vs 0.304); **4000 iters (the new
+  rt default) ≈ 11× realtime** and closes dy/accel exactly (0.306 vs 0.304). The three euler
+  channels are independent → parallelize to ~33× realtime on 3 cores if needed.
+
+**rt-L1 vs the deviation AGC (the two real-time bounded modes, head-to-head; AGC from
+`claude/deviation-agc`, §8n):**
+
+| metric (4 clips) | AGC 8° | rt-L1 (1s) | ratio |
+|---|---|---|---|
+| dy (matched 4:3) | 0.727 / 1.606 / 0.351 / **4.647** | **0.306 / 0.669 / 0.283** / 4.915 | rt-L1 up to **2.4×** better |
+| accel (°/s²) | 54 / 93 / 35 / 219 | **19 / 29 / 21 / 180** | rt-L1 2–3× better |
+| jerk (°/s³) | 1300 / 1220 / 813 / 3242 | **292 / 388 / 236 / 1674** | rt-L1 3–4× better |
+| waveform (2nd-harm) | 0.078 | ~0.079 (image) | same clean class |
+| compute | **O(n), µs-class** | ~11× realtime (ADMM) | AGC ~1000× cheaper |
+
+**rt-L1 dominates the AGC on every quality metric wherever its box doesn't bind** (2.4× dy on the
+run clips); the one clip AGC edges it (0004, 4.647 vs 4.915) is the box-binding regime where the
+AGC inherits its wrapped default-EMA — the same box-vs-violence law again. The AGC's remaining
+claims are its trivial O(n) cost and implementation size (~50 lines vs the ADMM solver). Verdict
+for an in-camera product: **rt-L1 is the quality choice; the AGC is the ultra-low-cost fallback**
+for platforms where even 11× realtime (or ~33× parallelized) is too much.
+
+**DCR + 1 s look-ahead at matched 4:3 — completing the real-time lineup.** §7/§8a established
+"DCR fits in a 1 s buffer" on 16:9 run renders only; re-rendered all four clips at matched 4:3
+(`--dcr --look-ahead 1 --keep-sensor`, zoom offline as in the rt-L1 renders) to make the
+real-time-DCR row comparable with everything else in the unified matrix:
+
+| clip | DCR offline dy | DCR + 1 s LA dy | Δ |
+|---|---:|---:|---:|
+| run 0001 | 0.461 | 0.481 | +4.3 % |
+| run 0002 | 0.834 | 0.847 | +1.6 % |
+| 0003 | 0.344 | 0.344 | ±0 % |
+| 0004 | 1.720 | 1.726 | +0.3 % |
+
+The 1 s-truncation cost is ≤4 % everywhere (roughness identical: 0.228 vs 0.227 on run 0002) —
+the §7 conclusion holds unchanged at 4:3 and on the violent clip. So the full real-time (1 s
+buffer) lineup is now: **DCR+LA1** (max steadiness, needs `--max-zoom 180`), **rt-L1 box 12°**
+(bounded winner), **AGC** (µs-class fallback). Traces:
+`figures/run0002_dy_traces_all_modes.png` (all seven series; DCR+LA1 rides on DCR offline),
+`figures/run0002_dy_dcr_la1_vs_offline.png` (focused pair vs DJI), and
+`figures/c0004_dy_traces_all_modes.png` (same seven series on the violent clip: the DCR pair
+stays flat through the impact burst, RMS 1.72 vs DJI 5.95, while the bounded modes follow the
+violence inside their budget as DJI does). Renders:
+`{0001,0002}_D_cpp_stabilized_dcr_la1_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_dcr_la1_4x3.mp4`
+(20260708).
+
+---
+
+## 8p. Eliminating L1 black borders — diagnosis + E2 (static box shrink): works, but too costly
+
+**Why L1 box12 shows black borders at 4:3** (quantified via validate `raw_fov`, breach =
+required zoom > the 1.30 max-zoom clamp): run0001 79 frames (3.4 %, peak demand 1.582),
+run0002 100 (6.7 %, 1.515), 0003 9 (0.1 %), 0004 143 (7.2 %, 1.621). Three stacked root causes:
+
+1. **Per-axis box ≠ total-deviation box**: 12° per euler axis allows a combined 3-axis deviation
+   up to 12√3 ≈ 21° — breach frames measure 15–20° total geodesic deviation.
+2. **Calibration framing mismatch**: box 12 was tuned at 16:9 (0004 maxReqZ 1.278 < 1.30); 4:3
+   uses the full sensor height, so the same angular deviation demands more crop.
+3. **Angle→zoom mapping is not constant**: measured slope k = (reqZ−1)/deviation varies 0.007 →
+   0.0245 with deviation direction / lens position / RS — a static angle box can never be tight
+   in the zoom domain. The constraint belongs in the *zoom* domain.
+
+**Experiment ladder**: E1 raise max-zoom (reference line only) · E2 static box shrink (below) ·
+E3 geometry-derived per-axis box from max_zoom (TODO 0c′) · E4 exact per-frame crop constraint
+via constraint generation (Grundmann's original form) · E5 zoom-side soft ceiling (release the
+clamp transiently for residual breaches).
+
+**E2 result — box 7.5° is the largest all-safe static box at 4:3** (telemetry sweep: box 8
+leaves 2 breach frames on run0001 @1.312; box 7.5 → zero breaches on all four clips, peaks
+1.176–1.271; box 6 large-margin safe at ≤1.173). Rendered box 7.5 on all four clips, matched
+4:3 (image-domain border metric = edge-connected near-black fraction; night-scene floor set by
+the borderless default render):
+
+| clip | box12 dy | **box7.5 dy** | Δ | box12 border (max %) | box7.5 border |
+|---|---:|---:|---:|---:|---:|
+| run 0001 | 0.304 | 0.599 | **+97 %** | 2.36 (real) | 0.84 < floor ✅ |
+| run 0002 | 0.700 | 1.963 | **+180 %** (worse than default 1.606) | 1.42 | 0.32 ≈ floor ✅ |
+| 0003 | 0.274 | 0.360 | +31 % | ≈ floor | ≈ floor ✅ |
+| 0004 | 4.901 | 6.606 | **+35 %** (worse than DJI 5.951) | 3.55 | 0.20 < floor ✅ |
+
+**Verdict: zero black borders achieved, but the static price is unacceptable** — where the box
+binds, the shrink hands back half to all of L1's advantage (run0002 ends up worse than plain
+default; 0004 worse than DJI). A single static box that survives the worst frame of the worst
+clip over-constrains the other 93–99 % of frames. This is exactly the case for **E3/E4**: derive
+the budget from max_zoom geometrically (E3) and tighten only the violating frames via
+constraint generation (E4; §8q measures the real outcome — the naive "≈ box12 dy" hope was
+wrong, breach frames are the dy-dominating peaks, but E4 still beats E2 on 3 of 4 clips).
+Renders:
+`{0001,0002}_D_cpp_l1box75_4x3.mp4` (run/cpp_out), `{0003,0004}_D_cpp_l1box75_4x3.mp4`
+(20260708). Side note: DJI's dy (5.95) sits between our box7.5 (6.61) and box12 (4.90) on 0004 —
+its effective deviation budget is bracketed by 7.5°–12° for this lens.
+
+---
+
+## 8q. Zero-border L1 SOLVED — E3 geometric budgets + E4 per-frame constraint generation
+
+Implemented both zoom-domain fixes from the §8p ladder (branch: `--l1-fit-crop`,
+`--l1-auto-box [scale]` on both CLIs; `smoothL1CropConstrained` in the library, lens-free via a
+required-zoom callback; unit-tested with a synthetic demand model, ctest 7/7, golden md5
+unchanged).
+
+**E3 — geometric per-axis budgets** (`--l1-auto-box`): bisect, per euler axis, the constant
+pure-axis offset whose instantaneous required zoom hits max_zoom (identity base, 8-frame probe
+series — pure lens geometry, no clip data). For this lens at 4:3 / 130 %: **roll 11.7°,
+pitch 16.0°, yaw 32.2°** (single-axis). The equal box 12 was thus *already over the roll budget
+on its own* and wasted ~3× headroom on yaw — the per-axis asymmetry the static box ignores.
+Scale 0.577 (1/√3, combined-use de-rate) is the default; also used as the fit-crop initial box.
+
+**E4 — constraint generation** (`--l1-fit-crop`): outer loop around the per-channel ADMM —
+solve, ask the zoom machinery for per-frame required zoom (instantaneous `raw_fov`), shrink the
+per-frame per-axis boxes of violating frames (±2-frame halo) toward the deviation that meets a
+3 %-margined target, re-solve. Telemetry: **all four clips converge in 3–4 rounds, breaches
+79/100/9/143 → 0**, maxReqZ 1.51–1.62 → 1.25–1.29, cost +1.3–6.9 s per clip.
+
+**Rendered verdict (matched 4:3, image domain — zero borders confirmed on all four clips**,
+bbmax 0.09–0.16 % ≤ the borderless-default floor; 0003 floor-dominated by real dark scenery):
+
+| clip | box12 dy (borders!) | box7.5 dy (E2) | **fit-crop dy (E4)** | E4 vs E2 | DJI |
+|---|---:|---:|---:|---|---:|
+| run 0001 | 0.304 | 0.599 | **0.495** | −17 % | — |
+| run 0002 | 0.700 | 1.963 | **1.097** | **−44 %** | 3.815 |
+| 0003 | 0.274 | 0.360 | 0.385 | +7 % (both ≈ floor) | — |
+| 0004 | 4.901 | 6.606 | **5.798** | −12 % (back under DJI 5.951) | 5.951 |
+
+- **Zero borders is now a solved constraint, not a trade-off knob**: fit-crop beats the best
+  static zero-border box (E2) on 3 of 4 clips — dramatically on run0002 (1.10 vs 1.96, and well
+  under default's 1.61) — and returns 0004 to *better than DJI* (5.80 vs 5.95), which E2 had
+  lost (6.61).
+- **The residual dy cost vs box12 (+18…63 %) is irreducible, not algorithmic**: the breach
+  frames ARE the violent peaks that dominate dy; box12's lower dy was literally purchased with
+  black borders. Fit-crop's number is the best dy *achievable inside the true crop budget*.
+- 0003 is the one nuance: with only 9 breach frames the global re-solve after tightening cost
+  slightly more than the static 7.5° box (0.385 vs 0.360) — both negligible in absolute terms.
+- Figure: `figures/l1_fitcrop_dy_vs_borders.png`. Renders: `*_D_cpp_l1fit_4x3.mp4` +
+  `*_D_cpp_l1box75_4x3.mp4` alongside the other 4:3 renders.
+- **E5 (transient clamp release) is now moot as a primary mechanism** — E4 leaves nothing to
+  guard on these clips — but remains the right belt-and-braces default for RS/numeric residuals
+  on unseen footage.
+- **Realtime**: fit-crop is offline (global CG loop). The rt path composes naturally — run CG
+  per receding-horizon window (the window solver already takes per-sample bounds) — future
+  work, noted in TODO 0c′.
+
+**E1 quantified (raise max-zoom; reference line only).** box12 + `--max-zoom 170` does give
+zero breaches (peak demand 1.62 < 1.70) — but the 4 s zoom envelope holds every impact's deep
+crop for seconds, so the cost is not "a brief dip": on the violent clips **48–69 % of all
+frames ride above the old 1.30 ceiling** (run0001 48 %, run0002 66 %, 0004 69 %; mean zoom
+1.29→1.36 on 0004, p95 1.46–1.54, transient max 1.62 = 38 % narrower view), plus zoom
+breathing and digital-zoom softening. The calm clip (0003) is nearly free (1.5 %). Verdict
+unchanged: E1 is a reference line, not a mode; zoom-side release survives only as E5's
+transient guard.
+
+**E3-as-initializer, rendered (`--l1-auto-box --l1-fit-crop`, "l1auto", all four clips 4:3):**
+
+| clip | fit-crop (box12 init) dy | l1auto (E3 ×0.577 init) dy | border |
+|---|---:|---:|---|
+| run 0001 | **0.495** | 1.049 (2.1×) | zero ✅ |
+| run 0002 | **1.097** | 2.647 (2.4×) | zero ✅ |
+| 0003 | 0.385 | **0.295** | zero ✅ |
+| 0004 | **5.798** | 7.707 | zero ✅ |
+
+The guarantee holds (all zero-border), but the **1/√3 de-rate hits the wrong axis**: ×0.577
+turns the geometric budgets (roll 11.7 / pitch 16.0 / yaw 32.2°) into roll 6.8 / **pitch 9.2** /
+yaw 18.6° — and the running bob lives on *pitch*, where 9.2° is tighter than the old box12,
+while the opened-up yaw goes unused on run clips. 0003 (pan-flavoured) is the one clip it
+helps, confirming the mechanism. **Lesson: E4 is the guarantee, so the initial box should be
+generous, not de-rated** — use scale 1.0 (pitch 16° > 12°) and let constraint generation absorb
+the axis-combination overflow (pending experiment, TODO 0c′). Renders: `*_D_cpp_l1auto_4x3.mp4`.
+
+**Scale 1.0 rendered ("l1a10") — the generous-init hypothesis is REFUTED; CG initialization
+has a U-curve.** `--l1-auto-box 1.0 --l1-fit-crop` (pitch 16° > box12) was expected to beat
+the box12 init; it loses badly:
+
+| clip | fit-crop (box12 init) | l1auto (×0.577) | l1a10 (×1.0) |
+|---|---:|---:|---:|
+| run 0001 | **0.495** | 1.049 | 2.036 |
+| run 0002 | **1.097** | 2.647 | 3.514 |
+| 0003 | **0.385** | 0.295 | 0.450 |
+| 0004 | **5.798** | 7.707 | 7.731 |
+
+Mechanism: with a generous box the L1 solution *rides the box* everywhere for smoothness
+(sparse knots at the box edge), so the initial solve breaches on 558–2814 frames; CG can only
+shrink toward feasibility, not re-balance — the tightened per-frame budgets lock in the shape
+of that wandering initial solution, and the cuts land exactly where the path was riding
+(roughness 0.869 vs 0.122 on run 0001). Both ends of the init spectrum lose: too tight
+(box 7.5: over-constrained everywhere, fit-crop is a no-op) and too loose (×1.0: everything
+tightened, kinked). **The sweet spot is an init that leaves few violations — box 12 (3–7 % of
+frames) — and the FINAL RECOMMENDED quality config is therefore
+`--smoothing l1 --l1-deviation 12 --l1-fit-crop`.** `--l1-auto-box` stays as a geometry probe
+(per-axis budget asymmetry, framing adaptation) but is not a good CG initializer at any tested
+scale. Renders: `*_D_cpp_l1a10_4x3.mp4`.
+
+**E-ladder final scoreboard (zero-border at 4:3/130 %):**
+
+| rung | verdict |
+|---|---|
+| E1 raise max-zoom | works, costs 48–69 % of frames above the old ceiling — reference line only |
+| E2 static box 7.5° | works, hands back L1's advantage where it binds (+35…180 % dy) — dominated |
+| E3 geometric budgets | right idea, wrong de-rate at ×0.577 (pitch-starved); use ×1.0 as E4's initializer |
+| **E4 `--l1-fit-crop`** | **the answer**: zero borders, best in-budget dy on 3/4 clips, 3–4 rounds, +1.3–6.9 s |
+| E5 transient clamp release | demoted to belt-and-braces guard for unseen footage |
+
+(The EMA-family sibling of E4 — the crop-budget guard `--fit-crop`, its DCR rendered verdict,
+and the discovery of Gyroflow's native `max_zoom_iterations` equivalent — is §8r on
+`claude/new-cpp-impl`.)
+
+## 8t. rt-L1 aligned with fit-crop — zero-border L1 in real time (E4 inside the §8o window)
+
+§8s on `claude/new-cpp-impl` measured the rendered rt-L1 (§8o, box 12, 1 s buffer) posting the
+best mild-clip numbers of every config — but with **real borders on the violent clip** (max
+3.4 %, 3 % of frames > 1 % area): the static angle box cannot be tight in the zoom domain
+(§8p), and L1 rides its box by construction, so whatever the box over-grants, L1 spends.
+This section composes E4's constraint generation with the §8o receding-horizon window —
+TODO item (a), now landed.
+
+**Mechanism** (`l1CropConstrainedRealtime`, dispatched by `smoothL1CropConstrained` when
+`params.look_ahead_s >= 0`; CLI: `--l1-look-ahead S --l1-fit-crop`): per window
+[2 s pinned past | commit K=15 | S future], run up to 4 inner rounds — solve the 3 channels,
+recompose the window candidate, ask `reqzoom_fn` for its per-frame required zoom (the callback
+now evaluates at the candidate's own timestamps, so window slices just work), shrink the boxes
+of breaching *uncommitted* frames (±2-frame halo) exactly as §8q, re-solve — then commit K.
+Tightened boxes persist across window slides (no oscillation); a non-breaching window costs
+exactly one extra O(W) reqzoom evaluation. Same 1 s buffer as everything else in the rt
+pipeline. Report: `outer` = max rounds any window needed; `breach_after` from one final
+full-series evaluation of the committed path (honest, not per-window).
+
+**Telemetry (validate, 4:3, box 12, 1 s buffer):**
+
+| clip | breach pre→post | maxReqZ pre→post | note |
+|---|---|---|---|
+| 0001 | **0 → 0** | 1.274 (untouched) | **rt path needs no tightening at all** |
+| 0002 | 0 → 0 | 1.292 → 1.287 | margin-touch only (target 1.291) |
+| 0003 | 0 → 0 | 1.207 (untouched) | passthrough |
+| 0004 | 1 → **0** | 1.304 → **1.284** | fov floor 0.7786 > clamp 0.7692 → zero forced border |
+
+The 0001 row corrects a §8s presumption: rt-L1's mild-clip advantage is **not**
+border-financed — the *offline global* box-12 solve breaches 79 frames on 0001 (maxReqZ 1.58,
+§8q log) because it plans long box-riding arcs, but the receding-horizon solve, re-anchored
+every K frames, never accumulates that deviation (maxReqZ 1.274). Only the violent clip needed
+work, and only 1 pre-tightening breach appears through the window (vs 1.319 global §8o) for
+the same reason.
+
+**Rendered (0004, matched 4:3, vs the §8s zero-border field):**
+
+| config | dy RMS | dy rough | dx rough | border max / >1 % frames |
+|---|---:|---:|---:|---|
+| rt-L1 plain (border-financed) | 4.98 | 3.36 | 1.79 | 3.45 % / 3.0 % ✗ |
+| **rt-L1 + fit-crop (§8t)** | **6.14** | **2.29** | **1.41** | **0.17 % / 0 ✅** (= l1fit floor) |
+| offline L1 fit-crop (§8q) | 5.69 | 2.19 | 1.91 | 0.23 % / 0 ✅ |
+| DCR + guard (§8r realtime tier) | 6.40 | 3.06 | 2.25 | ≈0 ✅ |
+| Rust golden (native loop) | 5.85 | 4.22 | 1.84 | ≈0 ✅ |
+| DJI RockSteady+ | 5.62 | 4.25 | 2.36 | full sensor |
+
+**rt-L1+fit dominates DCR+guard on every metric at zero border** (dy −4 %, dy roughness
+−25 %, dx twitch −37 %) while using the same 1 s buffer — it takes the **Realtime tier**.
+Against its own offline sibling it trades +8 % dy amplitude for the lowest horizontal twitch
+of any zero-border config measured (1.41; the §8s complaint metric). Honest cost vs the
+border-financed plain rt-L1: +23 % dy — that is what the violent clip's zero-border guarantee
+actually costs in real time. 0001/0003 are bit-identical to plain rt-L1 (zero tightening).
+
+**0002 margin caveat (rendered).** 0002 never truly breaches (maxReqZ 1.2921 < 1.30) but
+hovers above the 3 %-margin trigger (target 1.291), so the loop tightens anyway — rendered
+dy 0.751 → 1.355 (+80 %), border already-clean → clean (max 0.33 %). The margin is doing its
+job conservatively, but on budget-hugging paths it charges real smoothness for borders that
+were never going to materialize. Candidate tuning (applies to §8q offline too): trigger
+tightening only at a true breach (`rz > max_zoom`) while keeping `target` as the tightening
+*goal* — the verify round still guarantees zero breaches, and 0002 would stay at plain
+rt-L1's 0.751. Not yet implemented/evaluated.
+
+**Cost**: validate end-to-end on the 66 s clip 7.6 s → 13.5 s (+once-per-window reqzoom +
+re-solves where tightening fires; ≈2× plain rt-L1, still ≥5× realtime single-threaded at
+rt_iterations 4000; §8o's 800 halves it again). Unit test: synthetic linear-demand model —
+rt fit converges to zero breaches; loose budget reproduces plain rt-L1 bit-identically
+(ctest 7/7). Render: `dji6_L/20260708/0004_D_cpp_rtl1fit_4x3.mp4` (+ hardlink in
+`results_4x3_0001-0004/`), log `0004_rtl1fit.log`.
+
+**Recommended config update**: quality-realtime =
+`--smoothing l1 --l1-deviation 12 --l1-look-ahead 1 --l1-fit-crop` — zero borders, offline-L1
+class quality, 1 s latency. The offline `--l1-fit-crop` (no look-ahead) remains the pure
+quality tier (§8q).
+
 ---
 
 ## 8r. Crop-budget guard (`--fit-crop`) — DCR's black borders solved, and what the honest budget reveals

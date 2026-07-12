@@ -70,10 +70,29 @@ bridged from the Rust binary — those are the two biggest remaining gaps.
   EVALUATION_SUMMARY §3/§6). Investigate per-row rolling-shutter interpolation and fisheye-model
   accuracy at high image radii; band analysis already localizes it.
 - **0c. Branch consolidation**: merge `claude/gaussian-smoothing` (verified low-risk — only 2
-  Markdown conflicts, CLI/CMake auto-merge); **rebase** `claude/speed-bump-jolt-rnd` (L1) — do NOT
-  naive-merge (real conflicts in both CLI tools; it predates DCR/`--enhanced`/`raw_fov`). On
-  rebase, unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
+  Markdown conflicts, CLI/CMake auto-merge). ~~Rebase `claude/speed-bump-jolt-rnd`~~ — **done
+  (2026-07-09)**: this branch is now rebased onto the full cpp-impl stack (`--smoothing l1`
+  coexists with DCR/`--enhanced`/clamps/`raw_fov`; golden intact, ctest 7/7). Still open from the
+  rebase review: unify L1's API to `(quats, duration_ms, params)` + same-timestamp output, share
   default_algo's euler↔quat helpers, replace fixed 2000 ADMM iterations with a convergence test.
+- **0c′. Self-tuning crop-budget L1** (§8j-7/8): derive the per-axis box B from `max_zoom`
+  automatically (box 12° ≈ the 130 % clamp boundary on 0004) → a parameter-free "max quality
+  within the crop budget" bounded mode that beats DJI (dy −12 %, roughness −30 %, clean waveform).
+  **Upgraded by §8j-9:** when the box doesn't bind (run 0002) L1 box12 beats even DCR (0.639 vs
+  0.767) — a self-tuning L1 inherits the best of both regimes and is the natural challenger to
+  DCR as the default. **Scoped by §8p, LANDED by §8q:** E3 (`--l1-auto-box`, geometric
+  per-axis budgets from max_zoom: roll 11.7°/pitch 16.0°/yaw 32.2° at 4:3-130 %) and E4
+  (`--l1-fit-crop`, per-frame constraint generation) are implemented and validated — zero
+  black borders on all four clips, beats the best static zero-border box on 3/4, back under
+  DJI on 0004. Scale 1.0 was tested and REFUTED (SS8q "l1a10": CG init has a U-curve; the
+  sweet spot is an init with few violations — box 12 — and the final recommended quality
+  config is `--smoothing l1 --l1-deviation 12 --l1-fit-crop`). **(a) DONE by §8t:** fit-crop
+  now composes with the rt receding-horizon path (`--l1-look-ahead S --l1-fit-crop`,
+  in-window constraint generation; zero breaches on 0004, rt path needs no tightening at all
+  on 0001, ~2× plain rt-L1 cost). Remaining: (b) E5 (transient zoom-clamp release) as a
+  belt-and-braces guard for unseen footage; (c) optional: probe an auto-box scale that lands
+  near box12 coverage (~0.75, pitch 12 deg) if lens/framing portability of the initializer is
+  ever needed.
 - **0d. Translation-domain stabilization** (research, biggest headroom): the visible "running
   float" is translational parallax no rotational smoother reaches (`SMOOTHING_RND.md` §3);
   needs optical-flow translation smoothing + crop budget. Start with a design doc.
@@ -110,9 +129,35 @@ where DJI's native quaternion axis convention is normalized into the orientation
 ### 6. Algorithmic R&D beyond Gyroflow — severe jolts ("大坑") + running float
 Gyroflow's velocity-adaptive low-pass *loosens* smoothing at high velocity, so it can't
 distinguish an intentional fast pan from an unintentional jolt/bob and passes it through;
-adaptive zoom then "pumps" or hits `max_zoom` (black borders). A prototype + the measurement
-tooling and findings are recorded in **`cpp_core/SMOOTHING_RND.md`** (§5 covers the L1
-jerk-limiting comparison; the L1 code lives on `claude/speed-bump-jolt-rnd`, NOT merged).
+adaptive zoom then "pumps" or hits `max_zoom` (black borders). The speed-bump jolt research
+(scenario, severity sweep, gate prototype) is recorded in **`cpp_core/JOLT_RND.md`**;
+the L1 jerk-limiting comparison is in **`cpp_core/SMOOTHING_RND.md`** §5 (L1 code on this
+branch: `--smoothing l1`).
+
+**Finding so far (JOLT_RND E8) — smoothing-only jolt rejection is NOT a clear win, decision
+deferred.** On a *synthetic* pure-oscillation bump a moderate gate cuts output-path jerk
+~35–40% at zero zoom cost; but on *real* dji6 jolts it only helps ~12% at jr≈0.3 and regresses
+past that (jerk rises, zoom eaten toward the `max_zoom` clamp). Real jolts = oscillation + a
+small *sustained* attitude shift: the oscillation is cheap to reject, the sustained part costs
+crop, so a smoothing-only gate's real-world gain is marginal and strength-fragile.
+
+**L1-optimal is the winning direction (JOLT_RND E9).** Prototyped Grundmann-2011 L1-optimal
+path (`tools/l1_optimal_experiment.py`, scipy LP) and compared to default_algo *at the same crop
+budget*: real dji6 jolt segments show **−51% to −77% output-path jerk at no extra crop** (vs the
+gate's marginal ~12%), because it is crop-aware AND finds optimal static/linear/parabolic paths.
+
+**C++ L1-optimal IMPLEMENTED (JOLT_RND E10)** — `smoothing/l1_optimal.{hpp,cpp}`, per-euler ADMM
+(dependency-free banded solve + over-relaxation), box-constrained; `--smoothing l1` on validate +
+stabilize; default path untouched (ctest 7/7). Full dji6 (11 934 frames): **−28% output-path
+jerk at a higher min-fov (less pumping), or −48% at 1.0× crop**. (Watch ADMM convergence: needs
+~2000–4000 iters at full-clip scale; 500 looks worse.)
+
+Remaining to productionize (deferred — revisit later):
+- **True crop-window inclusion constraint** (couples axes) instead of the per-euler-axis box
+  proxy; derive the box from `max_zoom` directly so L1 is self-contained (no match-default).
+- **Rendered/image-layer confirmation** on a real speed-bump clip (dji6 may lack clean bumps).
+- ADMM convergence/iteration tuning (adaptive rho / residual stop) for very long clips; possibly
+  windowing.
 
 The related **running low-frequency vertical float** case has its own record in
 **`cpp_core/SMOOTHING_RND.md`**: the **DCR** (Direction Consistency Ratio) gate — `--dcr`,
@@ -135,10 +180,9 @@ ceiling), and a Gaussian base kernel beats EMA+DCR on jerk at equal crop. Candid
   single round, O(n).
 - **L1-optimal camera path** (Grundmann 2011) as an alternative smoothing mode: crop-bounded
   constant/linear/parabolic path; absorbs transients without breathing.
-- **Crop-constrained joint smoothing↔zoom** instead of the two-stage smooth-then-zoom.
 - **Spike/outlier rejection** (Hampel/median) on the attitude before smoothing.
-- Add a **jerk-RMS / P95 residual-motion** metric to `stabilization_quality.py` (mean-based
-  ITF/flow average jolts away).
+- ✅ Done: **jerk-RMS / P95 / ITF-P05** metrics added to `stabilization_quality.py`; IMU-layer
+  `tools/jolt_analysis.py`; `tools/make_synthetic_jolt.py` (bump + gaussian profiles).
 
 ### 7. Remaining parity (lower priority)
 - ✅ **Per-axis smoothing** — ported (`DefaultAlgoParams::per_axis` + `smoothness_pitch/yaw/roll`,
