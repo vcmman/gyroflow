@@ -1197,8 +1197,16 @@ the same reason.
 Against its own offline sibling it trades +8 % dy amplitude for the lowest horizontal twitch
 of any zero-border config measured (1.41; the §8s complaint metric). Honest cost vs the
 border-financed plain rt-L1: +23 % dy — that is what the violent clip's zero-border guarantee
-actually costs in real time. Mild clips are untouched (0001/0003 bit-identical to plain rt-L1,
-0002 margin-graze), so §8s's mild-clip wins carry over unchanged at zero border.
+actually costs in real time. 0001/0003 are bit-identical to plain rt-L1 (zero tightening).
+
+**0002 margin caveat (rendered).** 0002 never truly breaches (maxReqZ 1.2921 < 1.30) but
+hovers above the 3 %-margin trigger (target 1.291), so the loop tightens anyway — rendered
+dy 0.751 → 1.355 (+80 %), border already-clean → clean (max 0.33 %). The margin is doing its
+job conservatively, but on budget-hugging paths it charges real smoothness for borders that
+were never going to materialize. Candidate tuning (applies to §8q offline too): trigger
+tightening only at a true breach (`rz > max_zoom`) while keeping `target` as the tightening
+*goal* — the verify round still guarantees zero breaches, and 0002 would stay at plain
+rt-L1's 0.751. Not yet implemented/evaluated.
 
 **Cost**: validate end-to-end on the 66 s clip 7.6 s → 13.5 s (+once-per-window reqzoom +
 re-solves where tightening fires; ≈2× plain rt-L1, still ≥5× realtime single-threaded at
